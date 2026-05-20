@@ -85,6 +85,50 @@ def test_pre_filter_assume_remote_no_location_context_passes():
     ok, _ = _passes_pre_filter("Software Engineer", "Remote", assume_remote=True)
     assert ok
 
+def test_pre_filter_blocked_company_fire_feed():
+    from fetch_jobs import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Software Engineer", "Vancouver, BC", company="Fire Feed")
+    assert not ok
+    assert "blocked company" in reason
+
+def test_pre_filter_blocked_company_quik_hire():
+    from fetch_jobs import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Developer", "Canada · Remote", company="Quik Hire Staffing")
+    assert not ok
+    assert "blocked company" in reason
+
+def test_pre_filter_blocked_company_case_insensitive():
+    from fetch_jobs import _passes_pre_filter
+    ok, _ = _passes_pre_filter("Developer", "Vancouver, BC", company="FIRE FEED")
+    assert not ok
+
+def test_pre_filter_non_blocked_company_passes():
+    from fetch_jobs import _passes_pre_filter
+    ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC", company="Acme Corp")
+    assert ok
+
+
+# ── _strip_french_section ────────────────────────────────────────────────────
+
+def test_strip_french_version_francaise():
+    from fetch_jobs import _strip_french_section
+    desc = "We are hiring a Python developer. Version française Nous cherchons un développeur."
+    result = _strip_french_section(desc)
+    assert result == "We are hiring a Python developer."
+    assert "Nous cherchons" not in result
+
+def test_strip_french_en_francais():
+    from fetch_jobs import _strip_french_section
+    desc = "Great opportunity. En français Bonne opportunité."
+    result = _strip_french_section(desc)
+    assert "Bonne" not in result
+    assert "Great opportunity" in result
+
+def test_strip_french_no_marker_unchanged():
+    from fetch_jobs import _strip_french_section
+    desc = "We are looking for a Software Engineer with Python experience."
+    assert _strip_french_section(desc) == desc
+
 
 # ── extract_job_id ───────────────────────────────────────────────────────────
 
