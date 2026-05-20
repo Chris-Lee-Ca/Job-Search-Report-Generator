@@ -7,7 +7,7 @@ Automates daily LinkedIn job screening and application tracking. Fetches job lis
 ## Pipeline overview
 
 ```
-fetch_jobs.py  →  output/raw_jobs_DATE.json
+fetch_jobs.py  →  output/raw/raw_jobs_DATE.json
                           ↓
               score_filter.py  →  output/daily_jobs_DATE.md
                                            ↓  (user checks boxes)
@@ -18,7 +18,7 @@ fetch_jobs.py  →  output/raw_jobs_DATE.json
 
 | Phase | Script | Input | Output |
 |-------|--------|-------|--------|
-| 1 — Fetch | `fetch_jobs.py` | `config.json` search URLs | `output/raw_jobs_DATE.json` |
+| 1 — Fetch | `fetch_jobs.py` | `config/config.json` search URLs | `output/raw/raw_jobs_DATE.json` |
 | 2 — Score & Filter | `score_filter.py` | raw jobs JSON + `resume.md` | `output/daily_jobs_DATE.md` |
 | 3 — Report | `generate_report.py` | checked daily file | `reports/applied_DATE.md` |
 
@@ -30,7 +30,7 @@ Two-phase Playwright scrape of LinkedIn search results.
 
 ### Phase 1a — Card collection (code-only, no LLM)
 
-Clicks through job cards on the search results page to collect job IDs and preview metadata (title, company, location). Saves a checkpoint to `output/job_ids_DATE.json` so you can resume detail fetching with `--from-ids` if interrupted.
+Clicks through job cards on the search results page to collect job IDs and preview metadata (title, company, location). Saves a checkpoint to `output/raw/job_ids_DATE.json` so you can resume detail fetching with `--from-ids` if interrupted.
 
 **Pre-filters applied at this stage (fast, no LLM):**
 
@@ -58,7 +58,7 @@ Visits each job URL to extract the full description, company name, location, and
 
 ## Phase 2 — Score & Filter (`score_filter.py`)
 
-Reads `output/raw_jobs_DATE.json` and passes each job to the configured LLM provider alongside your resume.
+Reads `output/raw/raw_jobs_DATE.json` and passes each job to the configured LLM provider alongside your resume.
 
 ### Code-based steps (before and after LLM)
 
@@ -151,7 +151,11 @@ A Chrome window opens. Log in normally, then press Enter in the terminal. Sessio
 
 ### 5. Fill in your resume
 
-Edit `resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant.
+```bash
+cp resume.example.md resume.md
+```
+
+Edit `resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant. `resume.md` is gitignored so your personal details stay off Git.
 
 ---
 
@@ -165,10 +169,10 @@ python fetch_jobs.py
 python fetch_jobs.py --schedule 17:00
 
 # Resume detail fetching from a saved IDs checkpoint
-python fetch_jobs.py --from-ids output/job_ids_2026-05-19.json
+python fetch_jobs.py --from-ids output/raw/job_ids_2026-05-19.json
 
 # Score an existing raw jobs file without re-scraping
-python score_filter.py output/raw_jobs_2026-05-19.json
+python score_filter.py output/raw/raw_jobs_2026-05-19.json
 
 # Generate EI report from a checked daily file
 python generate_report.py output/daily_jobs_2026-05-19.md
@@ -179,7 +183,7 @@ python generate_report.py output/daily_jobs_2026-05-19.md --append
 
 ---
 
-## Configuration reference (`config.json`)
+## Configuration reference (`config/config.json`)
 
 | Key | Purpose |
 |-----|---------|
@@ -201,7 +205,7 @@ python generate_report.py output/daily_jobs_2026-05-19.md --append
 
 ## AI job assistant
 
-With the project open in Claude Code, you can ask job application questions in the terminal. Claude reads `resume.md` and `qa_store.md` automatically.
+With the project open in Claude Code, you can ask job application questions in the terminal. Claude reads `resume.md` and `config/qa_store.md` automatically.
 
 **Examples:**
 - *"Is this job relevant to my background? [paste description]"*
@@ -211,7 +215,7 @@ With the project open in Claude Code, you can ask job application questions in t
 Save a polished answer for future reuse:
 > *"Save this answer to 'Why 1Password'"*
 
-Saved answers live in `qa_store.md` and are returned verbatim before Claude generates a new response.
+Saved answers live in `config/qa_store.md` and are returned verbatim before Claude generates a new response.
 
 ---
 
@@ -242,12 +246,21 @@ Read the actual HTML before writing new selectors — never guess.
 │   ├── base.py                Abstract LLMProvider interface + JobAnalysis dataclass
 │   ├── claude_provider.py     Anthropic Claude implementation
 │   └── gemini_provider.py     Google Gemini implementation
-├── config.json                Search URLs, filter rules, LLM config
-├── resume.md                  Your background — read by scorer and AI assistant
-├── qa_store.md                Saved Q&A answers for the AI assistant
+├── config/
+│   ├── config.json            Search URLs, filter rules, LLM config
+│   ├── qa_store.md            Saved Q&A answers (gitignored — personal)
+│   ├── qa_store.example.md    Template for qa_store.md
+│   └── README.md              Field-by-field config guide
+├── resume.md                  Your background — read by scorer and AI assistant (gitignored)
+├── resume.example.md          Template for resume.md
 ├── browser_data/              Persistent Chrome profile from --setup (gitignored)
 ├── data/seen_jobs.json        Tracks all seen jobs and applied status
-├── output/                    Daily job checklists + debug HTML (gitignored)
+├── output/
+│   ├── daily_jobs_DATE.md     Daily job checklists (gitignored)
+│   ├── raw/                   Intermediate scrape artifacts (gitignored)
+│   │   ├── raw_jobs_DATE.json Full job data from detail pages
+│   │   └── job_ids_DATE.json  IDs checkpoint for --from-ids resume
+│   └── debug/                 HTML snapshots for debugging selectors
 ├── reports/                   EI application reports (gitignored)
 ├── tests/                     Pytest suite
 └── legacyReportGenerator/     Original manual-URL tool (independent, see its README)

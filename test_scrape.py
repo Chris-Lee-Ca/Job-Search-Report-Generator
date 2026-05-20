@@ -15,10 +15,14 @@ import re
 import time
 from pathlib import Path
 
-from fetch_jobs import ANTI_DETECTION_SCRIPT, BROWSER_DATA_DIR, _launch_context, _passes_pre_filter, _LOCATION_JS
+from fetch_jobs import BROWSER_DATA_DIR, DEBUG_DIR, OUTPUT_DIR
+from job_providers.linkedin_provider import (
+    ANTI_DETECTION_SCRIPT, _passes_pre_filter, _LOCATION_JS, LinkedInProvider,
+)
 
-CONFIG_FILE = "config.json"
-OUTPUT_DIR = Path("output")
+CONFIG_FILE = Path("config") / "config.json"
+
+_provider = LinkedInProvider(output_dir=OUTPUT_DIR, debug_dir=DEBUG_DIR, browser_data_dir=BROWSER_DATA_DIR)
 
 
 def _load_search_url() -> str:
@@ -218,8 +222,6 @@ def test_page1_count(page) -> bool:
     The pre-selected card must be captured before the click loop starts,
     otherwise it is always missed (timeout because detail panel doesn't change).
     """
-    from fetch_jobs import _click_cards_collect_ids
-
     _sep("TEST PAGE-1 COUNT — must be exactly 25")
 
     # Count raw visible cards first
@@ -228,7 +230,7 @@ def test_page1_count(page) -> bool:
     )
     print(f"  Raw visible cards on page: {len(raw_cards)}")
 
-    ids = _click_cards_collect_ids(page)
+    ids = _provider._click_cards_collect_ids(page)
     print(f"  Job IDs collected: {len(ids)}")
     for jid, meta in list(ids.items())[:3]:
         print(f"    {jid}: {meta.get('title', '?')!r} @ {meta.get('location', '?')!r}")
@@ -255,13 +257,11 @@ def test_pagination(page) -> bool:
     This test is stricter than test0: it tests pagination AFTER the card-clicking
     loop runs, which is exactly when the production code checks for next.
     """
-    from fetch_jobs import _click_cards_collect_ids
-
     _sep("TEST PAGINATION — full cycle: collect page 1 → click next → collect page 2")
 
     # --- Page 1 ---
     print("  Step 1: collecting IDs from page 1...")
-    page1_raw = _click_cards_collect_ids(page)
+    page1_raw = _provider._click_cards_collect_ids(page)
     page1_ids = set(page1_raw.keys())
     print(f"  Page 1 IDs collected: {len(page1_ids)}")
     if not page1_ids:
@@ -355,7 +355,7 @@ def test_pagination(page) -> bool:
 
     # --- Page 2 ---
     print("  Step 2: collecting IDs from page 2...")
-    page2_raw = _click_cards_collect_ids(page)
+    page2_raw = _provider._click_cards_collect_ids(page)
     page2_ids = set(page2_raw.keys())
     print(f"  Page 2 IDs collected: {len(page2_ids)}")
 
@@ -537,8 +537,6 @@ def test_remote_filter_button(page) -> bool:
     """
     _sep("TEST REMOTE FILTER BUTTON — find, click, verify cards updated")
 
-    from fetch_jobs import _first_card_key, _wait_for_cards_change
-
     btn = page.query_selector('[aria-label="Filter by Remote"]')
     if not btn:
         print("  FAIL: [aria-label='Filter by Remote'] not found on this page")
@@ -546,9 +544,9 @@ def test_remote_filter_button(page) -> bool:
         return False
 
     print("  Found Remote filter button — clicking...")
-    before_key = _first_card_key(page)
+    before_key = _provider._first_card_key(page)
     page.evaluate("el => el.click()", btn)
-    _wait_for_cards_change(page, before_key, timeout=8000)
+    _provider._wait_for_cards_change(page, before_key, timeout=8000)
 
     cards = page.query_selector_all(
         "[componentkey='SearchResultsMainContent'] div[role='button'][componentkey]"
@@ -571,7 +569,7 @@ def run():
     results: dict[str, bool] = {}
 
     with sync_playwright() as p:
-        context = _launch_context(p)
+        context = _provider._launch_context(p)
 
         page = context.new_page()
         page.goto(search_url, wait_until="domcontentloaded", timeout=30000)

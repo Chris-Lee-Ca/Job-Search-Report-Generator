@@ -12,13 +12,13 @@ This project includes a personal job assistant powered by Claude Code. When the 
 
 **Always do this first:**
 1. Read `resume.md` to understand the user's background, skills, and target roles.
-2. Read `qa_store.md` and check if a pre-saved answer exists for this exact question or company.
+2. Read `config/qa_store.md` and check if a pre-saved answer exists for this exact question or company.
    - If a saved answer exists: return it **verbatim**, do not rewrite or improve it.
    - If no saved answer: generate a response grounded in the resume content.
 
 **Saving answers:**
 When the user says "save this answer", "remember this answer", or "remember this for [question]":
-- Append to `qa_store.md` using this exact format:
+- Append to `config/qa_store.md` using this exact format:
   ```
   ## Q: [question or topic]
   **A:** [the answer to save]
@@ -78,7 +78,7 @@ Dependencies: `pip install playwright anthropic openai schedule` then `playwrigh
 The pipeline runs in this order:
 
 ```
-fetch_jobs.py  →  output/raw_jobs_DATE.json
+fetch_jobs.py  →  output/raw/raw_jobs_DATE.json
                          ↓
                score_filter.py  →  output/daily_jobs_DATE.md
                                             ↓ (user checks boxes)
@@ -89,9 +89,9 @@ fetch_jobs.py  →  output/raw_jobs_DATE.json
 
 ### Key files
 
-- `resume.md` — user's background; read by the assistant and the scorer.
-- `qa_store.md` — saved Q&A answers; always checked before generating new responses.
-- `config.json` — LinkedIn search URLs, plain-English hard filter criteria, LLM provider + model.
+- `resume.md` — user's background; read by the assistant and the scorer. Gitignored — copy from `resume.example.md`.
+- `config/qa_store.md` — saved Q&A answers; always checked before generating new responses. Gitignored.
+- `config/config.json` — LinkedIn search URLs, plain-English hard filter criteria, LLM provider + model.
 - `data/seen_jobs.json` — persistent record of every job ID seen and whether it was applied to. Used to detect previously applied jobs in future runs.
 - `providers/base.py` — `LLMProvider` abstract interface + `JobAnalysis` dataclass.
 - `providers/claude_provider.py` — Anthropic SDK implementation.
@@ -100,7 +100,7 @@ fetch_jobs.py  →  output/raw_jobs_DATE.json
 
 ### LLM provider
 
-Swap providers by editing `config.json`:
+Swap providers by editing `config/config.json`:
 ```json
 "llm": { "provider": "claude", "model": "claude-haiku-4-5-20251001", "api_key_env": "ANTHROPIC_API_KEY" }
 ```
@@ -108,7 +108,7 @@ Change `provider` to `"openai"` and `model` to `"gpt-4o-mini"` for OpenAI. No co
 
 ### Filtering
 
-Filtering is AI-based (not keyword matching). The `hard_filter_criteria` list in `config.json` is passed as plain English to the LLM alongside the job description. The AI judges whether a job matches a filter criterion based on actual content. Edit that list freely — no code changes needed.
+Filtering is AI-based (not keyword matching). The `hard_filter_criteria` list in `config/config.json` is passed as plain English to the LLM alongside the job description. The AI judges whether a job matches a filter criterion based on actual content. Edit that list freely — no code changes needed.
 
 ### Seen jobs / duplicate detection
 

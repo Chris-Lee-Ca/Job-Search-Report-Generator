@@ -20,8 +20,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = Path("config") / "config.json"
 OUTPUT_DIR = Path("output")
+RAW_DIR = OUTPUT_DIR / "raw"
 DEBUG_DIR = OUTPUT_DIR / "debug"
 BROWSER_DATA_DIR = Path("browser_data")
 
@@ -54,9 +55,9 @@ def _build_provider(config: dict):
 
 
 def _save_raw_jobs(jobs: list[dict]) -> Path:
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    RAW_DIR.mkdir(parents=True, exist_ok=True)
     today = datetime.now().strftime("%Y-%m-%d")
-    out_path = OUTPUT_DIR / f"raw_jobs_{today}.json"
+    out_path = RAW_DIR / f"raw_jobs_{today}.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(jobs, f, indent=2, ensure_ascii=False)
     with_desc = sum(1 for j in jobs if j.get("description"))

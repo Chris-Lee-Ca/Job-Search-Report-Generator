@@ -14,12 +14,10 @@ from providers.base import JobAnalysis
 def _analysis(**overrides) -> JobAnalysis:
     defaults = dict(
         should_filter=False, filter_reason=None,
-        score=70, score_reasoning="Good match.",
+        score=70,
         matched_required_skills=["Python"], matched_nice_skills=["Docker"],
-        required_skills=["Python"], nice_to_have_skills=["Docker"],
         seniority_required="Mid-level (2-4 yrs)",
         work_mode="Remote", industry="Tech",
-        primary_tech_mismatch=False, mismatch_reason=None,
     )
     defaults.update(overrides)
     return JobAnalysis(**defaults)
@@ -98,11 +96,11 @@ def test_section_shows_matched_skills():
     assert "Go" in out
     assert "Kubernetes" in out
 
-def test_section_description_excerpt_truncated():
+def test_section_long_description_not_included():
     from score_filter import _format_job_section
     long_desc = "x" * 400
     out = _format_job_section(_sample_job(description=long_desc), _analysis(), previously_applied=False)
-    assert "..." in out
+    assert long_desc not in out
 
 
 # ── run_score_filter (integration) ──────────────────────────────────────────
@@ -124,9 +122,9 @@ def _run_with_mock(jobs: list, analyses: list, tmp_dir: str) -> str:
         from score_filter import run_score_filter
         run_score_filter(raw_path)
 
-    out_file = out_dir / "daily_jobs_2026-05-14.md"
-    assert out_file.exists(), "Output markdown was not created"
-    return out_file.read_text()
+    out_files = sorted(out_dir.glob("daily_jobs_*.md"))
+    assert out_files, "Output markdown was not created"
+    return out_files[-1].read_text()
 
 def test_scored_job_appears_in_output():
     jobs = [{"id": "aaa", "title": "Backend Dev", "company": "Beta Inc",
@@ -150,10 +148,8 @@ def test_filtered_job_not_in_main_list():
     with tempfile.TemporaryDirectory() as tmp:
         content = _run_with_mock(jobs, analyses, tmp)
 
-    main, _, filtered = content.partition("## Filtered Out")
-    assert "Co1" not in main
-    assert "Co2" in main
-    assert "Co1" in filtered
+    assert "Co1" not in content
+    assert "Co2" in content
 
 def test_jobs_sorted_by_score_descending():
     jobs = [

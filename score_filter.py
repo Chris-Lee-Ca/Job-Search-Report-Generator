@@ -7,8 +7,8 @@ Flow:
   3. Writes output/daily_jobs_YYYY-MM-DD.md and updates data/seen_jobs.json
 
 Usage:
-    python score_filter.py                               # uses today's raw_jobs file
-    python score_filter.py output/raw_jobs_2026-05-13.json
+    python score_filter.py                                    # uses today's raw_jobs file
+    python score_filter.py output/raw/raw_jobs_2026-05-13.json
 """
 
 from __future__ import annotations
@@ -23,10 +23,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-CONFIG_FILE = "config.json"
+CONFIG_FILE = Path("config") / "config.json"
 RESUME_FILE = "resume.md"
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("output")
+RAW_DIR = OUTPUT_DIR / "raw"
 SEEN_JOBS_FILE = DATA_DIR / "seen_jobs.json"
 
 WORK_MODE_EMOJI = {"Remote": "🌐", "Hybrid": "🏢", "Onsite": "🏛", "Unknown": "❓"}
@@ -117,7 +118,7 @@ def run_score_filter(raw_jobs_path: str | None = None):
 
     if raw_jobs_path is None:
         today = datetime.now().strftime("%Y-%m-%d")
-        raw_jobs_path = OUTPUT_DIR / f"raw_jobs_{today}.json"
+        raw_jobs_path = RAW_DIR / f"raw_jobs_{today}.json"
 
     with open(raw_jobs_path, encoding="utf-8") as f:
         jobs = json.load(f)

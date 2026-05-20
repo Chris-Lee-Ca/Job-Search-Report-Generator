@@ -262,8 +262,9 @@ class LinkedInProvider(JobProvider):
 
         # Save IDs checkpoint — allows resuming detail fetch with --from-ids if interrupted.
         today = datetime.now().strftime("%Y-%m-%d")
-        self.output_dir.mkdir(exist_ok=True)
-        ids_path = self.output_dir / f"job_ids_{today}.json"
+        raw_dir = self.output_dir / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        ids_path = raw_dir / f"job_ids_{today}.json"
         ids_to_save = [
             {k: v for k, v in job.items() if k not in ("company", "description")}
             for job in jobs.values()

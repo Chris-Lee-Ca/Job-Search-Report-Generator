@@ -1,4 +1,6 @@
 .env
+resume.md
+config/qa_store.md
 output/
 reports/
 data/seen_jobs.json
