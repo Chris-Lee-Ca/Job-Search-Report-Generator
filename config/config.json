@@ -13,7 +13,7 @@
   "hard_filter_criteria": [
     "Exclude internships, co-ops, or student positions",
     "Exclude staff engineer or staff developer title-level roles",
-    "Exclude roles that explicitly require more than 6 years of experience as a hard requirement (not just preferred)",
+    "Exclude roles that explicitly require 5 or more years of experience as a hard requirement (not just preferred)",
     "Exclude freelance positions (contract roles are acceptable)",
     "Exclude onsite or hybrid roles not located in Metro Vancouver area (Vancouver, Burnaby, Richmond, Surrey, Coquitlam, New Westminster, North Vancouver, West Vancouver, Delta, Langley)",
     "Exclude remote roles where the company is based entirely outside Canada"
