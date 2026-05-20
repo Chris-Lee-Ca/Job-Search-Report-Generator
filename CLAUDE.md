@@ -27,13 +27,43 @@ When the user says "save this answer", "remember this answer", or "remember this
 
 ---
 
+## Testing standard
+
+### Where tests live
+- **Unit tests** — co-located with the source file they test. Pure logic only: no browser, no live API, no real disk I/O (use `tmp_path`).
+  - `score_filter.py` → `test_score_filter.py` (project root)
+  - `generate_report.py` → `test_generate_report.py` (project root)
+  - `job_providers/linkedin_provider.py` → `job_providers/test_linkedin_provider.py`
+- **Integration tests** — live in `tests/`. Require Playwright, live APIs, or test full pipeline flow. Marked `@pytest.mark.integration`.
+
+### When to run what
+```bash
+# Default — fast unit tests, run after every change
+pytest -m "not integration" -v
+
+# Changed scraping logic — add browser tests
+pytest tests/test_scraper.py -v
+
+# Full suite (includes Playwright)
+pytest -v
+```
+
+### Rules
+- Add a test for every bug fixed — name it after what broke.
+- Test pure logic functions; skip thin wrappers (`load_config`, `load_resume`).
+- Mock `build_provider` and `load_resume` in pipeline integration tests.
+- Do not mark a fix done until `pytest -m "not integration" -v` passes.
+
+---
+
 ## Debugging workflow (follow this before claiming a fix is done)
 
 1. **Run targeted tests first.** Run only the tests relevant to the changed file — the full suite is slow. Examples:
-   - Changed `fetch_jobs.py` → `python -m pytest tests/test_scraper.py -v`
-   - Changed `score_filter.py` → `python -m pytest tests/test_score_filter.py -v`
-   - Changed `generate_report.py` → `python -m pytest tests/test_generate_report.py -v`
-   - Single test → `python -m pytest tests/test_scraper.py::test_pre_filter_non_bc_city_blocked_without_remote -v`
+   - Changed `fetch_jobs.py` → `pytest -m "not integration" -v`
+   - Changed `score_filter.py` → `pytest test_score_filter.py tests/test_score_filter.py -v`
+   - Changed `generate_report.py` → `pytest test_generate_report.py tests/test_generate_report.py -v`
+   - Changed `job_providers/linkedin_provider.py` → `pytest job_providers/test_linkedin_provider.py tests/test_scraper.py -v`
+   - Single test → `pytest job_providers/test_linkedin_provider.py::test_pre_filter_non_bc_city_blocked_without_remote -v`
    Do not claim the fix is complete if tests fail.
 
 2. **Check saved HTML when scraping is wrong.** Every search page visit writes a snapshot to `output/debug/`. When jobs are missing or fields are empty, open the relevant file:

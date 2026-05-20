@@ -1,9 +1,11 @@
 """
-Tests for LinkedIn job provider scraping logic.
+Integration tests for LinkedIn scraping logic — require Playwright/Chromium.
 
-Uses Playwright route interception to serve local mock HTML instead of hitting LinkedIn.
-If these tests pass but the live scraper still returns 0 jobs or empty fields, check
-output/debug_search_url*_p1.html (saved on every run) and update the mock fixture.
+Pure-logic unit tests (pre_filter, strip_french, extract_job_id) live in
+job_providers/test_linkedin_provider.py alongside the source.
+
+Run only when changing scraping methods:
+    pytest tests/test_scraper.py -v
 """
 
 from pathlib import Path
@@ -14,7 +16,6 @@ MOCK_SEARCH_HTML = (FIXTURES / "linkedin_mock.html").read_text(encoding="utf-8")
 MOCK_SEARCH_URL = "https://www.linkedin.com/jobs/search-results/?keywords=test"
 MOCK_SEARCH_ENTRY = {"label": "test", "url": MOCK_SEARCH_URL, "remote_only": False}
 
-# Per-job detail pages — company comes from a[href*="/company/"] DOM element
 def _detail_html(title: str, company: str, description: str = "Python engineer role.") -> str:
     slug = company.lower().replace(" ", "-")
     return f"""<html>
@@ -33,7 +34,7 @@ MOCK_DETAILS = {
 }
 
 
-# ── Provider fixture ──────────────────────────────────────────────────────────
+# ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def provider(tmp_path):
@@ -44,122 +45,6 @@ def provider(tmp_path):
         browser_data_dir=tmp_path / "browser_data",
     )
 
-
-# ── _passes_pre_filter ────────────────────────────────────────────────────────
-
-def test_pre_filter_metro_van_always_passes():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC")
-    assert ok
-
-def test_pre_filter_staff_title_blocked():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Staff Engineer", "Vancouver, BC")
-    assert not ok
-    assert "staff" in reason
-
-def test_pre_filter_non_bc_city_blocked_without_remote():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Software Engineer", "Toronto, ON")
-    assert not ok
-    assert "non-BC city" in reason
-
-def test_pre_filter_non_bc_city_blocked_with_remote():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Software Engineer", "Toronto, ON · Remote")
-    assert not ok
-    assert "non-BC city" in reason
-
-def test_pre_filter_non_bc_city_blocked_assume_remote():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Software Engineer", "Calgary, AB · Remote", assume_remote=True)
-    assert not ok
-    assert "non-BC city" in reason
-
-def test_pre_filter_canada_remote_passes():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Software Engineer", "Canada · Remote")
-    assert ok
-
-def test_pre_filter_bc_remote_passes():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Software Engineer", "British Columbia, Canada · Remote")
-    assert ok
-
-def test_pre_filter_non_metro_bc_onsite_blocked():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Software Engineer", "Victoria, BC")
-    assert not ok
-    assert "non-Metro BC onsite" in reason
-
-def test_pre_filter_assume_remote_no_location_context_passes():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Software Engineer", "Remote", assume_remote=True)
-    assert ok
-
-def test_pre_filter_blocked_company_fire_feed():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Software Engineer", "Vancouver, BC", company="Fire Feed")
-    assert not ok
-    assert "blocked company" in reason
-
-def test_pre_filter_blocked_company_quik_hire():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, reason = _passes_pre_filter("Developer", "Canada · Remote", company="Quik Hire Staffing")
-    assert not ok
-    assert "blocked company" in reason
-
-def test_pre_filter_blocked_company_case_insensitive():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Developer", "Vancouver, BC", company="FIRE FEED")
-    assert not ok
-
-def test_pre_filter_non_blocked_company_passes():
-    from job_providers.linkedin_provider import _passes_pre_filter
-    ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC", company="Acme Corp")
-    assert ok
-
-
-# ── _strip_french_section ────────────────────────────────────────────────────
-
-def test_strip_french_version_francaise():
-    from job_providers.linkedin_provider import _strip_french_section
-    desc = "We are hiring a Python developer. Version française Nous cherchons un développeur."
-    result = _strip_french_section(desc)
-    assert result == "We are hiring a Python developer."
-    assert "Nous cherchons" not in result
-
-def test_strip_french_en_francais():
-    from job_providers.linkedin_provider import _strip_french_section
-    desc = "Great opportunity. En français Bonne opportunité."
-    result = _strip_french_section(desc)
-    assert "Bonne" not in result
-    assert "Great opportunity" in result
-
-def test_strip_french_no_marker_unchanged():
-    from job_providers.linkedin_provider import _strip_french_section
-    desc = "We are looking for a Software Engineer with Python experience."
-    assert _strip_french_section(desc) == desc
-
-
-# ── extract_job_id ───────────────────────────────────────────────────────────
-
-def test_extract_job_id_from_view_url():
-    from job_providers.linkedin_provider import extract_job_id
-    assert extract_job_id("https://www.linkedin.com/jobs/view/1234567890/") == "1234567890"
-
-def test_extract_job_id_from_currentjobid():
-    from job_providers.linkedin_provider import extract_job_id
-    assert extract_job_id("/jobs/search-results/?currentJobId=9876543210&ref=x") == "9876543210"
-
-def test_extract_job_id_returns_none_for_garbage():
-    from job_providers.linkedin_provider import extract_job_id
-    assert extract_job_id("https://www.linkedin.com/feed/") is None
-    assert extract_job_id("") is None
-
-
-# ── fixtures ─────────────────────────────────────────────────────────────────
-
 @pytest.fixture(scope="module")
 def browser():
     from playwright.sync_api import sync_playwright
@@ -168,10 +53,8 @@ def browser():
         yield b
         b.close()
 
-
 @pytest.fixture
 def mock_page(browser):
-    """Playwright page with LinkedIn URLs intercepted by mock HTML."""
     context = browser.new_context()
     page = context.new_page()
 
@@ -186,37 +69,6 @@ def mock_page(browser):
     page.route("https://www.linkedin.com/**", handle)
     yield page
     context.close()
-
-
-# ── ID extraction from search results ────────────────────────────────────────
-
-def test_extracts_three_job_ids_from_mock(mock_page, provider):
-    jobs = {}
-    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
-    assert len(jobs) == 3, f"Expected 3 jobs, got {len(jobs)}: {list(jobs.keys())}"
-
-def test_extracted_ids_are_correct(mock_page, provider):
-    jobs = {}
-    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
-    assert "1111111111" in jobs
-    assert "2222222222" in jobs
-    assert "3333333333" in jobs
-
-def test_job_url_uses_view_format(mock_page, provider):
-    jobs = {}
-    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
-    for job in jobs.values():
-        assert "/jobs/view/" in job["url"]
-
-def test_duplicate_ids_not_added(mock_page, provider):
-    existing = {"1111111111": {"id": "1111111111", "title": "Old", "company": "",
-                               "location": "", "url": "", "description": ""}}
-    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, existing, url_idx=0)
-    assert existing["1111111111"]["title"] == "Old"  # not overwritten
-    assert len(existing) == 3  # 2 new added
-
-
-# ── detail page parsing ───────────────────────────────────────────────────────
 
 @pytest.fixture
 def detail_page(browser):
@@ -234,30 +86,70 @@ def detail_page(browser):
     yield page
     context.close()
 
+
+# ── Search result ID extraction ───────────────────────────────────────────────
+
+@pytest.mark.integration
+def test_extracts_three_job_ids_from_mock(mock_page, provider):
+    jobs = {}
+    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
+    assert len(jobs) == 3, f"Expected 3 jobs, got {len(jobs)}: {list(jobs.keys())}"
+
+@pytest.mark.integration
+def test_extracted_ids_are_correct(mock_page, provider):
+    jobs = {}
+    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
+    assert "1111111111" in jobs
+    assert "2222222222" in jobs
+    assert "3333333333" in jobs
+
+@pytest.mark.integration
+def test_job_url_uses_view_format(mock_page, provider):
+    jobs = {}
+    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, jobs, url_idx=0)
+    for job in jobs.values():
+        assert "/jobs/view/" in job["url"]
+
+@pytest.mark.integration
+def test_duplicate_ids_not_added(mock_page, provider):
+    existing = {"1111111111": {"id": "1111111111", "title": "Old", "company": "",
+                               "location": "", "url": "", "description": ""}}
+    provider._scrape_search_url(mock_page, MOCK_SEARCH_ENTRY, existing, url_idx=0)
+    assert existing["1111111111"]["title"] == "Old"
+    assert len(existing) == 3
+
+
+# ── Detail page parsing ───────────────────────────────────────────────────────
+
+@pytest.mark.integration
 def test_detail_title_from_page_title(detail_page, provider):
     job = {"id": "1111111111", "url": "https://www.linkedin.com/jobs/view/1111111111/",
            "title": "", "company": "", "location": "", "description": ""}
     provider._fetch_job_detail(detail_page, job)
     assert job["title"] == "Software Engineer"
 
+@pytest.mark.integration
 def test_detail_company_from_dom(detail_page, provider):
     job = {"id": "1111111111", "url": "https://www.linkedin.com/jobs/view/1111111111/",
            "title": "", "company": "", "location": "", "description": ""}
     provider._fetch_job_detail(detail_page, job)
     assert job["company"] == "Acme Corp"
 
+@pytest.mark.integration
 def test_detail_description_extracted(detail_page, provider):
     job = {"id": "1111111111", "url": "https://www.linkedin.com/jobs/view/1111111111/",
            "title": "", "company": "", "location": "", "description": ""}
     provider._fetch_job_detail(detail_page, job)
     assert "Python" in job["description"]
 
+@pytest.mark.integration
 def test_detail_employment_type_extracted(detail_page, provider):
     job = {"id": "1111111111", "url": "https://www.linkedin.com/jobs/view/1111111111/",
            "title": "", "company": "", "location": "", "description": ""}
     provider._fetch_job_detail(detail_page, job)
     assert job.get("employment_type") == "Full-time"
 
+@pytest.mark.integration
 def test_detail_company_nonempty_for_all_jobs(detail_page, provider):
     expected = {
         "1111111111": "Acme Corp",

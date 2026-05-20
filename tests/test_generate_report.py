@@ -1,6 +1,12 @@
-"""Tests for generate_report.py — no LinkedIn required."""
+"""
+Integration test for generate_report — tests full main() flow with seen_jobs.json update.
+
+Pure-logic unit tests (parse_applied_jobs, generate_report, extract_date_from_filename)
+live in test_generate_report.py alongside the source.
+"""
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -47,99 +53,9 @@ Vancouver, BC · Full-time
 """
 
 
-# ── parse_applied_jobs ───────────────────────────────────────────────────────
-
-def test_parses_checked_jobs_only():
-    from generate_report import parse_applied_jobs
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
-        f.write(SAMPLE_DAILY)
-        path = f.name
-    result = parse_applied_jobs(path)
-    assert len(result) == 2
-    companies = {j["company"] for j in result}
-    assert companies == {"Stripe", "Acme"}
-
-def test_unchecked_job_not_parsed():
-    from generate_report import parse_applied_jobs
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
-        f.write(SAMPLE_DAILY)
-        path = f.name
-    result = parse_applied_jobs(path)
-    assert not any(j["company"] == "Shopify" for j in result)
-
-def test_extracts_url_correctly():
-    from generate_report import parse_applied_jobs
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
-        f.write(SAMPLE_DAILY)
-        path = f.name
-    result = parse_applied_jobs(path)
-    stripe = next(j for j in result if j["company"] == "Stripe")
-    assert stripe["url"] == "https://www.linkedin.com/jobs/view/111111111/"
-
-def test_extracts_job_id_from_url():
-    from generate_report import parse_applied_jobs
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
-        f.write(SAMPLE_DAILY)
-        path = f.name
-    result = parse_applied_jobs(path)
-    stripe = next(j for j in result if j["company"] == "Stripe")
-    assert stripe["job_id"] == "111111111"
-
-def test_no_applied_returns_empty():
-    from generate_report import parse_applied_jobs
-    content = SAMPLE_DAILY.replace("- [x] Applied", "- [ ] Applied")
-    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
-        f.write(content)
-        path = f.name
-    assert parse_applied_jobs(path) == []
-
-
-# ── generate_report ──────────────────────────────────────────────────────────
-
-def _applied_job(job_id, company, title, url):
-    return {"job_id": job_id, "company": company, "title": title, "url": url, "score": "90"}
-
-def test_report_contains_all_applied_jobs():
-    from generate_report import generate_report
-    jobs = [
-        _applied_job("111", "Stripe", "Software Engineer", "https://linkedin.com/jobs/view/111/"),
-        _applied_job("222", "Shopify", "Backend Dev", "https://linkedin.com/jobs/view/222/"),
-    ]
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "report.md"
-        generate_report(jobs, "2026-05-14", append=False, out_path=out)
-        content = out.read_text()
-    assert "Stripe" in content
-    assert "Shopify" in content
-    assert "2026-05-14" in content
-
-def test_report_markdown_table_structure():
-    from generate_report import generate_report
-    jobs = [_applied_job("111", "Stripe", "SWE", "https://linkedin.com/jobs/view/111/")]
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "report.md"
-        generate_report(jobs, "2026-05-14", append=False, out_path=out)
-        content = out.read_text()
-    assert "| # |" in content
-    assert "| Date Applied |" in content
-
-def test_append_mode_adds_to_existing():
-    from generate_report import generate_report
-    jobs1 = [_applied_job("111", "Stripe", "SWE", "https://linkedin.com/jobs/view/111/")]
-    jobs2 = [_applied_job("222", "Shopify", "Dev", "https://linkedin.com/jobs/view/222/")]
-    with tempfile.TemporaryDirectory() as tmp:
-        out = Path(tmp) / "report.md"
-        generate_report(jobs1, "2026-05-13", append=False, out_path=out)
-        generate_report(jobs2, "2026-05-14", append=True, out_path=out)
-        content = out.read_text()
-    assert "Stripe" in content
-    assert "Shopify" in content
-
-
-# ── seen_jobs integration ────────────────────────────────────────────────────
-
+@pytest.mark.integration
 def test_seen_jobs_updated_after_report():
-    from generate_report import parse_applied_jobs, generate_report, save_seen_jobs, load_seen_jobs
+    from generate_report import main as gen_main
 
     with tempfile.TemporaryDirectory() as tmp:
         daily = Path(tmp) / "daily_jobs_2026-05-14.md"
@@ -149,8 +65,6 @@ def test_seen_jobs_updated_after_report():
         with patch("generate_report.SEEN_JOBS_FILE", seen_path), \
              patch("generate_report.DATA_DIR", Path(tmp)), \
              patch("generate_report.REPORTS_DIR", Path(tmp)):
-            from generate_report import main as gen_main
-            import sys
             sys.argv = ["generate_report.py", str(daily)]
             gen_main()
 
@@ -159,4 +73,4 @@ def test_seen_jobs_updated_after_report():
     assert seen["111111111"]["applied"] is True
     assert seen["111111111"]["applied_date"] == "2026-05-14"
     assert seen["333333333"]["applied"] is True
-    assert "222222222" not in seen  # not applied
+    assert "222222222" not in seen
