@@ -11,7 +11,7 @@ This project includes a personal job assistant powered by Claude Code. When the 
 - Resume advice ("How should I describe this experience?")
 
 **Always do this first:**
-1. Read `resume.md` to understand the user's background, skills, and target roles.
+1. Read `config/resume.md` to understand the user's background, skills, and target roles.
 2. Read `config/qa_store.md` and check if a pre-saved answer exists for this exact question or company.
    - If a saved answer exists: return it **verbatim**, do not rewrite or improve it.
    - If no saved answer: generate a response grounded in the resume content.
@@ -89,7 +89,7 @@ fetch_jobs.py  →  output/raw/raw_jobs_DATE.json
 
 ### Key files
 
-- `resume.md` — user's background; read by the assistant and the scorer. Gitignored — copy from `resume.example.md`.
+- `config/resume.md` — user's background; read by the assistant and the scorer. Gitignored — copy from `config/resume.example.md`.
 - `config/qa_store.md` — saved Q&A answers; always checked before generating new responses. Gitignored.
 - `config/config.json` — LinkedIn search URLs, plain-English hard filter criteria, LLM provider + model.
 - `data/seen_jobs.json` — persistent record of every job ID seen and whether it was applied to. Used to detect previously applied jobs in future runs.
@@ -120,7 +120,7 @@ Filtering is AI-based (not keyword matching). The `hard_filter_criteria` list in
 
 `output/daily_jobs_DATE.md` — jobs sorted by score descending (Remote/Hybrid boosted within ±5 pts). Each job has a `- [ ] Applied` checkbox. Mark `- [x] Applied` and run `generate_report.py` to produce the EI report.
 
-### Environment variables (`.env`)
+### Environment variables (`config/.env`)
 
 ```
 ANTHROPIC_API_KEY=<your Anthropic API key>
@@ -128,7 +128,7 @@ OPENAI_API_KEY=<your OpenAI API key>   # only needed if using openai provider
 GEMINI_API_KEY=<your Gemini API key>   # only needed if using gemini provider
 ```
 
-LinkedIn session is stored in `browser_data/` via `python fetch_jobs.py --setup` (one-time login). No cookie needed in `.env`.
+LinkedIn session is stored in `browser_data/` via `python fetch_jobs.py --setup` (one-time login). No cookie needed in `config/.env`.
 
 ---
 

@@ -21,10 +21,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path("config") / ".env")
 
 CONFIG_FILE = Path("config") / "config.json"
-RESUME_FILE = "resume.md"
+RESUME_FILE = Path("config") / "resume.md"
 DATA_DIR = Path("data")
 OUTPUT_DIR = Path("output")
 RAW_DIR = OUTPUT_DIR / "raw"

@@ -18,7 +18,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path("config") / ".env")
 
 CONFIG_FILE = Path("config") / "config.json"
 OUTPUT_DIR = Path("output")

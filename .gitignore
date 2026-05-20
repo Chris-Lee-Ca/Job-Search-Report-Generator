@@ -1,5 +1,5 @@
-.env
-resume.md
+config/.env
+config/resume.md
 config/qa_store.md
 output/
 reports/

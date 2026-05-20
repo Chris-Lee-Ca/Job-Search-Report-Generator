@@ -130,10 +130,10 @@ playwright install chromium
 ### 3. Configure credentials
 
 ```bash
-cp .env.example .env
+cp config/.env.example config/.env
 ```
 
-Add your API key to `.env`:
+Add your API key to `config/.env`:
 
 ```
 ANTHROPIC_API_KEY=<your Anthropic API key>
@@ -152,10 +152,10 @@ A Chrome window opens. Log in normally, then press Enter in the terminal. Sessio
 ### 5. Fill in your resume
 
 ```bash
-cp resume.example.md resume.md
+cp config/resume.example.md config/resume.md
 ```
 
-Edit `resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant. `resume.md` is gitignored so your personal details stay off Git.
+Edit `config/resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant. `config/resume.md` is gitignored so your personal details stay off Git.
 
 ---
 
@@ -205,7 +205,7 @@ python generate_report.py output/daily_jobs_2026-05-19.md --append
 
 ## AI job assistant
 
-With the project open in Claude Code, you can ask job application questions in the terminal. Claude reads `resume.md` and `config/qa_store.md` automatically.
+With the project open in Claude Code, you can ask job application questions in the terminal. Claude reads `config/resume.md` and `config/qa_store.md` automatically.
 
 **Examples:**
 - *"Is this job relevant to my background? [paste description]"*
@@ -248,11 +248,13 @@ Read the actual HTML before writing new selectors — never guess.
 │   └── gemini_provider.py     Google Gemini implementation
 ├── config/
 │   ├── config.json            Search URLs, filter rules, LLM config
+│   ├── .env                   API keys (gitignored — personal)
+│   ├── .env.example           Template for .env
+│   ├── resume.md              Your background — read by scorer and AI assistant (gitignored)
+│   ├── resume.example.md      Template for resume.md
 │   ├── qa_store.md            Saved Q&A answers (gitignored — personal)
 │   ├── qa_store.example.md    Template for qa_store.md
 │   └── README.md              Field-by-field config guide
-├── resume.md                  Your background — read by scorer and AI assistant (gitignored)
-├── resume.example.md          Template for resume.md
 ├── browser_data/              Persistent Chrome profile from --setup (gitignored)
 ├── data/seen_jobs.json        Tracks all seen jobs and applied status
 ├── output/
