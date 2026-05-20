@@ -1,0 +1,807 @@
+"""
+LinkedIn job scraper.
+
+Usage:
+    python fetch_jobs.py --setup          # one-time: log in via visible browser
+    python fetch_jobs.py                  # run once (visible browser, reuses saved session)
+    python fetch_jobs.py --schedule 17:00 # run daily at HH:MM, stays alive
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
+CONFIG_FILE = "config.json"
+OUTPUT_DIR = Path("output")
+DEBUG_DIR = OUTPUT_DIR / "debug"
+BROWSER_DATA_DIR = Path("browser_data")
+
+ANTI_DETECTION_SCRIPT = """
+Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+window.chrome = { runtime: {} };
+"""
+
+# Scroll the LinkedIn job-list container (left panel) to trigger lazy loading.
+_SCROLL_LIST_JS = """
+() => {
+    const selectors = [
+        '.jobs-search-results-list',
+        '.scaffold-layout__list',
+        '.jobs-search-results__list'
+    ];
+    for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (el && el.scrollHeight > el.clientHeight) {
+            el.scrollBy(0, 600);
+            return sel;
+        }
+    }
+    window.scrollBy(0, 600);
+    return 'window';
+}
+"""
+
+
+def load_config() -> dict:
+    with open(CONFIG_FILE, "r") as f:
+        cfg = json.load(f)
+    # Normalise search_urls: accept both plain strings and {label, url, ...} objects
+    normalised = []
+    for entry in cfg.get("search_urls", []):
+        if isinstance(entry, str):
+            normalised.append({"label": entry[:40], "url": entry, "remote_only": False})
+        else:
+            entry.setdefault("remote_only", False)
+            normalised.append(entry)
+    cfg["search_urls"] = normalised
+    return cfg
+
+
+def extract_job_id(url: str) -> str | None:
+    match = re.search(r"/jobs/view/(\d+)", url)
+    if match:
+        return match.group(1)
+    match = re.search(r"currentJobId=(\d+)", url)
+    return match.group(1) if match else None
+
+
+def _parse_page_title(page_title: str) -> str:
+    """Extract the job title from a LinkedIn page title string.
+
+    Company is NOT extracted from the page title — always read from DOM instead.
+    LinkedIn formats seen in the wild:
+      "Title | LinkedIn"
+      "Title | Remote | Company | LinkedIn"
+      "Title at Company | LinkedIn"
+    Rule: first segment (before any " | ") is always the job title.
+    """
+    if "LinkedIn" not in page_title:
+        return ""
+    # Strip " | LinkedIn" and everything after (e.g. "LinkedIn Jobs")
+    raw = re.sub(r"\s*\|\s*LinkedIn\b.*$", "", page_title).strip()
+    if not raw:
+        return ""
+    # First segment before any " | " is the title
+    title = raw.split(" | ")[0].strip()
+    # Also handle "Title at Company" — strip the company part
+    if " at " in title:
+        title = title.partition(" at ")[0].strip()
+    return title
+
+
+# ── Location pre-filter constants ──────────────────────────────────────────────
+
+_METRO_VAN = frozenset({
+    "vancouver", "burnaby", "richmond", "surrey", "coquitlam",
+    "new westminster", "north vancouver", "west vancouver", "delta",
+    "langley", "port moody", "port coquitlam", "maple ridge",
+    "pitt meadows", "abbotsford", "white rock",
+})
+
+_NON_BC_CA = frozenset({
+    # Ontario cities
+    "toronto", "mississauga", "brampton", "markham", "vaughan", "oakville",
+    "burlington", "richmond hill", "oshawa", "barrie", "guelph", "kingston",
+    "windsor", "sudbury", "thunder bay", "whitby", "ajax", "pickering",
+    "newmarket", "aurora", "kanata", "scarborough", "north york", "etobicoke",
+    "ontario",
+    # Alberta cities
+    "calgary", "edmonton",
+    # Other provinces/cities
+    "ottawa", "montreal", "winnipeg", "hamilton", "london", "waterloo",
+    "kitchener", "saskatoon", "regina", "halifax",
+    # Province names
+    "alberta", "quebec", "manitoba", "saskatchewan",
+    "nova scotia", "new brunswick", "newfoundland", "prince edward",
+})
+
+_STAFF_RE = re.compile(
+    r"\bstaff\s+(engineer|developer|software|platform|ml|sre|sde|"
+    r"backend|frontend|full.?stack|data|cloud|devops|infra|architect)",
+    re.IGNORECASE,
+)
+
+_LEAD_PRINCIPAL_RE = re.compile(
+    r"\b(lead|principal)\s+(developer|engineer|software|platform|ml|sre|sde|"
+    r"backend|frontend|full.?stack|data|cloud|devops|infra|architect)"
+    r"|\bteam\s+lead\b"
+    r"|\btech\s+lead\b"
+    r"|\bengineering\s+lead\b",
+    re.IGNORECASE,
+)
+
+
+def _passes_pre_filter(title: str, location: str, assume_remote: bool = False) -> tuple[bool, str]:
+    """
+    Returns (True, "") if the job should be kept, or (False, reason) to skip.
+    assume_remote=True: caller confirmed the search has the LinkedIn Remote filter applied.
+    """
+    if _STAFF_RE.search(title):
+        return False, "staff-level title"
+
+    if _LEAD_PRINCIPAL_RE.search(title):
+        return False, "lead/principal-level title"
+
+    if not location:
+        return True, ""
+
+    loc = location.lower()
+
+    # Metro Vancouver → always keep
+    if any(city in loc for city in _METRO_VAN):
+        return True, ""
+
+    # Any non-BC Canadian city anywhere in the location string → filter out
+    if any(city in loc for city in _NON_BC_CA):
+        return False, f"non-BC city: {location}"
+
+    is_remote = "remote" in loc
+    has_bc = "british columbia" in loc or " bc" in loc or loc.startswith("bc")
+    has_canada = "canada" in loc
+
+    if assume_remote:
+        # Remote filter is active; non-BC cities already caught above.
+        return True, ""
+
+    # Remote with BC/Canada context → keep
+    if is_remote and (has_canada or has_bc):
+        return True, ""
+
+    # Non-Metro BC onsite → skip
+    if (has_bc or has_canada) and not is_remote:
+        return False, f"non-Metro BC onsite: {location}"
+
+    # No Canada/BC context and not remote → skip
+    if not has_bc and not has_canada and not is_remote:
+        return False, f"outside BC/Canada: {location}"
+
+    # Pure "Remote" with no country context → let AI decide
+    return True, ""
+
+
+def _launch_context(p):
+    """
+    Persistent context reuses the same Chrome profile (browser_data/) across runs.
+    Always headed — same mode as --setup — so LinkedIn sees an identical fingerprint.
+    Switching headless/headed between setup and scraping causes redirect loops.
+    """
+    BROWSER_DATA_DIR.mkdir(exist_ok=True)
+    context = p.chromium.launch_persistent_context(
+        user_data_dir=str(BROWSER_DATA_DIR),
+        headless=False,
+        args=["--disable-blink-features=AutomationControlled"],
+        user_agent=(
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        viewport={"width": 1280, "height": 800},
+        locale="en-US",
+        timezone_id="America/Vancouver",
+        extra_http_headers={
+            "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+        },
+    )
+    context.add_init_script(ANTI_DETECTION_SCRIPT)
+    return context
+
+
+def run_setup():
+    """Open a visible browser for one-time LinkedIn login. Session saved to browser_data/."""
+    from playwright.sync_api import sync_playwright
+
+    print("Opening browser for LinkedIn login...")
+    print("Log in, then come back here and press Enter.\n")
+
+    with sync_playwright() as p:
+        context = _launch_context(p)
+        page = context.new_page()
+        page.goto("https://www.linkedin.com/login")
+        input("Press Enter once you are logged in and can see your LinkedIn feed...")
+        context.close()
+
+    print("\nSession saved to browser_data/. Run `python fetch_jobs.py` to start scraping.")
+
+
+def _goto(page, url: str, timeout: int = 30000) -> bool:
+    """Navigate to URL. Returns False on HTTP/redirect errors instead of raising."""
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+        return True
+    except Exception as e:
+        err = str(e)
+        if "ERR_HTTP_RESPONSE_CODE_FAILURE" in err or "ERR_TOO_MANY_REDIRECTS" in err:
+            time.sleep(random.uniform(8, 20))
+            return False
+        raise
+
+
+def _save_html(page, label: str):
+    """Always save page HTML for debugging. Runs on every scrape pass."""
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    path = DEBUG_DIR / f"debug_{label}.html"
+    try:
+        path.write_text(page.content(), encoding="utf-8")
+    except Exception:
+        pass
+
+
+
+def scrape_linkedin(search_urls: list[dict]) -> list[dict]:
+    """
+    Phase 1: click through all search result pages to collect job IDs + preview
+             metadata (title, company, location). Saves output/job_ids_DATE.json.
+    Phase 2: fetch full details for each job that passed the pre-filter.
+    """
+    from playwright.sync_api import sync_playwright
+
+    if not BROWSER_DATA_DIR.exists() or not any(BROWSER_DATA_DIR.iterdir()):
+        print("No saved session found. Run `python fetch_jobs.py --setup` first.")
+        return []
+
+    jobs: dict[str, dict] = {}
+
+    with sync_playwright() as p:
+        context = _launch_context(p)
+
+        print("Checking session...")
+        check = context.new_page()
+        _goto(check, "https://www.linkedin.com/feed/")
+        time.sleep(random.uniform(3, 7))
+        if any(x in check.url for x in ("login", "authwall", "checkpoint")):
+            print("Session expired. Run `python fetch_jobs.py --setup` to log in again.")
+            check.close()
+            context.close()
+            return []
+        print(f"Session active (at: {check.url[:70]})")
+        check.close()
+
+        for url_idx, url_entry in enumerate(search_urls):
+            label = url_entry.get("label", f"url{url_idx+1}")
+            before = len(jobs)
+            print(f"\n[{url_idx+1}/{len(search_urls)}] '{label}' — {url_entry['url'][:70]}...")
+            page = context.new_page()
+            try:
+                _scrape_search_url(page, url_entry, jobs, url_idx)
+            except Exception as e:
+                print(f"  Error: {e}")
+            finally:
+                page.close()
+            added = len(jobs) - before
+            print(f"  → '{label}' done: {added} passed pre-filter  (running total: {len(jobs)})")
+
+        context.close()
+
+    if not jobs:
+        return []
+
+    # Save job IDs + preview metadata so the user can resume from this point
+    # with --from-ids without re-scraping LinkedIn.
+    today = datetime.now().strftime("%Y-%m-%d")
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    ids_path = OUTPUT_DIR / f"job_ids_{today}.json"
+    ids_to_save = [
+        {k: v for k, v in job.items() if k not in ("company", "description")}
+        for job in jobs.values()
+    ]
+    with open(ids_path, "w", encoding="utf-8") as f:
+        json.dump(ids_to_save, f, indent=2, ensure_ascii=False)
+    print(f"\n{'─'*50}")
+    print(f"Pre-filter done: {len(jobs)} jobs queued for detail fetch")
+    print(f"IDs saved → {ids_path}  (resume later with --from-ids {ids_path})")
+    print(f"{'─'*50}")
+
+    _fetch_all_details(jobs)
+    return list(jobs.values())
+
+
+def _fetch_all_details(jobs: dict[str, dict]):
+    """Phase 2: visit each job URL and populate title, description, etc."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        context = _launch_context(p)
+        detail_page = context.new_page()
+        first_detail = True
+        fetched_ok = 0
+
+        print(f"Fetching details for {len(jobs)} jobs...")
+        for i, (job_id, job) in enumerate(jobs.items(), 1):
+            print(f"  [{i:>3}/{len(jobs)}] ", end="", flush=True)
+            try:
+                _fetch_job_detail(detail_page, job, save_html=first_detail)
+                first_detail = False
+                if job.get("description") or job.get("title"):
+                    fetched_ok += 1
+            except Exception as e:
+                print(f"ERROR fetching {job_id}: {e}")
+            time.sleep(random.uniform(10, 25))
+
+        detail_page.close()
+        context.close()
+
+    missing = len(jobs) - fetched_ok
+    print(f"{'─'*50}")
+    print(f"Details received: {fetched_ok}/{len(jobs)}", end="")
+    if missing:
+        print(f"  ({missing} missing — saved to output/debug/debug_detail_missing_*)")
+    else:
+        print()
+
+
+_LOCATION_JS = """() => {
+    const strong = [...document.querySelectorAll('strong')].find(
+        el => /\\d+\\s+(second|minute|hour|day|week|month|year)s?\\s+ago/.test(el.textContent)
+    );
+    if (!strong) return '';
+    const p = strong.closest('p');
+    if (!p) return '';
+    const firstSpan = p.querySelector('span');
+    return firstSpan ? firstSpan.textContent.trim() : '';
+}"""
+
+
+def _click_cards_collect_ids(page) -> dict[str, dict]:
+    """
+    Click each job card on the search results page and collect:
+      job_id → {title, company, location}
+    Title and location are read from the inline detail panel that loads on the right
+    when a card is clicked — no extra URL navigation needed.
+
+    Returns a dict keyed by job ID. Cards that don't update the detail panel
+    (non-job elements) are silently skipped.
+    """
+    collected: dict[str, dict] = {}
+    clicked_keys: set[str] = set()
+
+    def _read_preview() -> dict:
+        title = _parse_page_title(page.title())
+        location = page.evaluate(_LOCATION_JS) or ""
+        return {"title": title, "company": "", "location": _clean(location)}
+
+    # LinkedIn pre-selects the first card — detail panel already loaded, capture it.
+    preselected = page.query_selector('[componentkey*="JobDetails_AboutTheJob_"]')
+    if preselected:
+        pk = preselected.get_attribute("componentkey") or ""
+        candidate = pk.split("_")[-1]
+        if candidate.isdigit() and candidate not in collected:
+            collected[candidate] = _read_preview()
+
+    for _ in range(10):  # scroll passes
+        cards = page.query_selector_all(
+            "[componentkey='SearchResultsMainContent'] div[role='button'][componentkey]"
+        )
+        found_new = False
+
+        for card in cards:
+            compkey = page.evaluate("e => e.getAttribute('componentkey')", card) or ""
+            if compkey in clicked_keys:
+                continue
+            clicked_keys.add(compkey)
+            found_new = True
+
+            before = page.query_selector('[componentkey*="JobDetails_AboutTheJob_"]')
+            before_key = before.get_attribute("componentkey") if before else None
+
+            try:
+                card.click()
+            except Exception:
+                continue
+
+            try:
+                page.wait_for_function(
+                    """(bk) => {
+                        const el = document.querySelector('[componentkey*="JobDetails_AboutTheJob_"]');
+                        return el && el.getAttribute('componentkey') !== bk;
+                    }""",
+                    arg=before_key,
+                    timeout=1500,
+                )
+            except Exception:
+                continue  # not a job card
+
+            detail = page.query_selector('[componentkey*="JobDetails_AboutTheJob_"]')
+            if not detail:
+                continue
+
+            detail_key = detail.get_attribute("componentkey") or ""
+            job_id = detail_key.split("_")[-1]
+            if job_id.isdigit() and job_id not in collected:
+                collected[job_id] = _read_preview()
+
+            time.sleep(random.uniform(2, 6))
+
+        if not found_new:
+            break
+
+        try:
+            page.evaluate(_SCROLL_LIST_JS)
+        except Exception:
+            break
+        time.sleep(random.uniform(1.5, 4))
+
+    return collected
+
+
+def _wait_for_cards_change(page, from_key: str | None, timeout: int = 8000):
+    """Wait until the first card's componentkey differs from from_key."""
+    try:
+        page.wait_for_function(
+            """(fk) => {
+                const cards = document.querySelectorAll(
+                    "[componentkey='SearchResultsMainContent'] div[role='button'][componentkey]"
+                );
+                if (!cards.length) return false;
+                return cards[0].getAttribute('componentkey') !== fk;
+            }""",
+            arg=from_key,
+            timeout=timeout,
+        )
+    except Exception:
+        time.sleep(random.uniform(4, 9))
+
+
+def _first_card_key(page) -> str | None:
+    cards = page.query_selector_all(
+        "[componentkey='SearchResultsMainContent'] div[role='button'][componentkey]"
+    )
+    return page.evaluate("e => e.getAttribute('componentkey')", cards[0]) if cards else None
+
+
+def _scrape_search_url(page, url_entry: dict, jobs: dict, url_idx: int):
+    search_url = url_entry["url"]
+    label = url_entry.get("label", f"url{url_idx+1}")
+    remote_only = url_entry.get("remote_only", False)
+
+    _goto(page, search_url, timeout=30000)
+    time.sleep(random.uniform(5, 12))
+
+    if any(x in page.url for x in ("login", "authwall", "checkpoint")):
+        print("  Redirected to login — session may have expired.")
+        return
+
+    # Click the Remote filter button before starting if requested
+    if remote_only:
+        before_key = _first_card_key(page)
+        remote_btn = page.query_selector('[aria-label="Filter by Remote"]')
+        if remote_btn:
+            print(f"  Clicking Remote filter...")
+            page.evaluate("el => el.click()", remote_btn)
+            _wait_for_cards_change(page, before_key, timeout=6000)
+            print(f"  Remote filter applied.")
+        else:
+            print(f"  WARNING: Remote filter button not found — proceeding unfiltered.")
+
+    page_num = 0
+    while True:
+        page_num += 1
+
+        _save_html(page, f"{label}_p{page_num}")
+
+        preview = _click_cards_collect_ids(page)
+
+        new_count = 0
+        skipped: list[str] = []
+        for job_id, meta in preview.items():
+            ok, reason = _passes_pre_filter(meta["title"], meta["location"], assume_remote=remote_only)
+            if not ok:
+                skipped.append(reason)
+                continue
+            if job_id not in jobs:
+                jobs[job_id] = {
+                    "id": job_id,
+                    "title": meta["title"],
+                    "company": meta["company"],
+                    "location": meta["location"],
+                    "url": f"https://www.linkedin.com/jobs/view/{job_id}/",
+                    "description": "",
+                    "_remote_only": remote_only,
+                }
+                new_count += 1
+
+        dupe_count = len(preview) - new_count - len(skipped)
+        parts = [f"found {len(preview)}", f"{new_count} new"]
+        if skipped:
+            # Count by reason category (strip location detail after the colon)
+            reason_counts: dict[str, int] = {}
+            for r in skipped:
+                key = r.split(":")[0].strip()
+                reason_counts[key] = reason_counts.get(key, 0) + 1
+            reason_summary = ", ".join(
+                f"{k} ×{v}" if v > 1 else k for k, v in reason_counts.items()
+            )
+            parts.append(f"{len(skipped)} filtered ({reason_summary})")
+        if dupe_count > 0:
+            parts.append(f"{dupe_count} dupe")
+        print(f"  Page {page_num}: {', '.join(parts)}")
+
+        if len(preview) == 0 and page_num == 1:
+            print(f"  0 jobs found on page 1. Check output/debug/debug_{label}_p1.html.")
+
+        # Stop paginating if ≥70% of this page was pre-filtered — results are drying up
+        if len(preview) > 0 and len(skipped) / len(preview) >= 0.70:
+            print(f"  ≥70% filtered ({len(skipped)}/{len(preview)}) — stopping early.")
+            break
+
+        next_btn = page.query_selector(
+            "button[data-testid='pagination-controls-next-button-visible']"
+        )
+        if not next_btn:
+            break
+
+        first_key = _first_card_key(page)
+        page.keyboard.press("Escape")
+        time.sleep(random.uniform(2, 5))
+        page.evaluate("el => el.click()", next_btn)
+        _wait_for_cards_change(page, first_key)
+        time.sleep(random.uniform(5, 14))
+
+
+def _fetch_job_detail(page, job: dict, save_html: bool = False):
+    from playwright.sync_api import TimeoutError as PlaywrightTimeout
+
+    _goto(page, job["url"], timeout=15000)
+
+    # Wait for the job detail section to load
+    try:
+        page.wait_for_selector(
+            "[data-sdui-component*='aboutTheJob'], h1, #job-details",
+            timeout=5000,
+        )
+    except PlaywrightTimeout:
+        pass
+
+    # Always save HTML for first detail page; also save when description is missing
+    if save_html:
+        _save_html(page, "detail_first")
+
+    # Expand description if collapsed (new SDUI expand button)
+    try:
+        btn = page.query_selector(
+            "[data-sdui-component*='aboutTheJob'] button[data-testid='expandable-text-button']"
+        )
+        if btn:
+            btn.click(force=True)
+            time.sleep(random.uniform(1, 3))
+    except Exception:
+        pass
+
+    # Title: page title is reliable for job title (first segment before any " | ")
+    t = _parse_page_title(page.title())
+    if t:
+        job["title"] = t
+
+    # Company: try multiple strategies; LinkedIn's SDUI layout varies across jobs.
+    # Strategy 1 — walk all company links, pick first with visible text.
+    company = ""
+    for el in page.query_selector_all('a[href*="/company/"]'):
+        text = _clean(el.inner_text())
+        if text:
+            company = text
+            break
+    # Strategy 2 — extract from aria-label (format: "Company, Name.")
+    if not company:
+        el = page.query_selector('a[href*="/company/"][aria-label]')
+        if el:
+            aria = el.get_attribute("aria-label") or ""
+            m = re.match(r"Company,\s*(.+?)\.", aria)
+            company = m.group(1).strip() if m else _clean(aria)
+    # Strategy 3 — fallback CSS selectors for older/alternate layouts
+    if not company:
+        for sel in [
+            ".job-details-jobs-unified-top-card__company-name",
+            ".jobs-unified-top-card__company-name",
+            ".topcard__org-name-link",
+            ".topcard__flavor--black-link",
+        ]:
+            el = page.query_selector(sel)
+            if el:
+                text = _clean(el.inner_text())
+                if text:
+                    company = text
+                    break
+    if company:
+        job["company"] = company
+
+    # Location — anchor on the "X ago" <strong> tag; only overwrite if not already set
+    if not job.get("location"):
+        location = page.evaluate(_LOCATION_JS)
+        if location:
+            job["location"] = _clean(location)
+
+    # Description — read from the expandable-text-box (full text_content, CSS-independent)
+    desc_el = page.query_selector(
+        "[data-sdui-component*='aboutTheJob'] [data-testid='expandable-text-box']"
+    )
+    if desc_el:
+        raw_desc = desc_el.text_content() or ""
+        # Strip any trailing "… more" button text (button is inside the span)
+        raw_desc = raw_desc.replace("… more", "").replace("…more", "").strip()
+        if raw_desc:
+            job["description"] = _clean(raw_desc)
+
+    if not job["description"]:
+        for sel in [
+            ".show-more-less-html__markup",
+            ".description__text",
+            "#job-details",
+            ".jobs-description__content",
+            ".jobs-description",
+        ]:
+            el = page.query_selector(sel)
+            if el and el.inner_text().strip():
+                job["description"] = _clean(el.inner_text())
+                break
+
+    # Employment type
+    for el in page.query_selector_all(
+        ".description__job-criteria-text, "
+        ".job-details-jobs-unified-top-card__job-insight span"
+    ):
+        text = el.inner_text().strip()
+        if any(t in text for t in ["Full-time", "Part-time", "Contract", "Temporary", "Internship"]):
+            job["employment_type"] = text
+            break
+
+    # If still missing key fields, save HTML for debugging
+    if not job["description"]:
+        _save_html(page, f"detail_missing_desc_{job['id']}")
+
+    company = job.get("company") or "?"
+    title = job.get("title") or "?"
+    location = job.get("location") or ""
+    desc_len = len(job.get("description", ""))
+    loc_note = f" · {location}" if location else ""
+    desc_note = f"  [{desc_len} chars]" if desc_len else "  [NO DESCRIPTION]"
+    print(f"{company} — {title[:45]}{loc_note}{desc_note}")
+
+
+def _clean(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def run_fetch_from_ids(ids_path: str):
+    """Skip card-clicking; read saved job_ids JSON, apply pre-filter, fetch details."""
+    path = Path(ids_path)
+    if not path.exists():
+        print(f"ERROR: {ids_path} not found.")
+        return
+
+    with open(path, "r", encoding="utf-8") as f:
+        raw: list[dict] = json.load(f)
+
+    jobs: dict[str, dict] = {}
+    skipped = 0
+    for item in raw:
+        job_id = item.get("id", "")
+        if not job_id:
+            continue
+        ok, reason = _passes_pre_filter(item.get("title", ""), item.get("location", ""))
+        if not ok:
+            skipped += 1
+            continue
+        jobs[job_id] = {
+            "id": job_id,
+            "title": item.get("title", ""),
+            "company": item.get("company", ""),
+            "location": item.get("location", ""),
+            "url": item.get("url", f"https://www.linkedin.com/jobs/view/{job_id}/"),
+            "description": "",
+        }
+
+    print(f"Loaded {len(raw)} IDs from {path.name}  →  {len(jobs)} pass pre-filter, {skipped} skipped")
+    if not jobs:
+        print("Nothing to fetch.")
+        return
+
+    _fetch_all_details(jobs)
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    out_path = OUTPUT_DIR / f"raw_jobs_{today}.json"
+    job_list = list(jobs.values())
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(job_list, f, indent=2, ensure_ascii=False)
+
+    with_desc = sum(1 for j in job_list if j.get("description"))
+    with_loc  = sum(1 for j in job_list if j.get("location"))
+    print(f"\n{'='*50}")
+    print(f"Saved {len(job_list)} jobs → {out_path}")
+    print(f"  With description : {with_desc}/{len(job_list)}")
+    print(f"  With location    : {with_loc}/{len(job_list)}")
+    print(f"{'='*50}")
+
+    print("\nRunning scorer...")
+    from score_filter import run_score_filter
+    run_score_filter(str(out_path))
+
+
+def run_fetch():
+    config = load_config()
+
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Starting LinkedIn job fetch...")
+
+    jobs = scrape_linkedin(config["search_urls"])
+
+    if not jobs:
+        print("\nWARNING: 0 jobs fetched.")
+        return
+
+    OUTPUT_DIR.mkdir(exist_ok=True)
+    today = datetime.now().strftime("%Y-%m-%d")
+    out_path = OUTPUT_DIR / f"raw_jobs_{today}.json"
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(jobs, f, indent=2, ensure_ascii=False)
+
+    with_desc = sum(1 for j in jobs if j.get("description"))
+    with_loc  = sum(1 for j in jobs if j.get("location"))
+    print(f"\n{'='*50}")
+    print(f"Saved {len(jobs)} jobs → {out_path}")
+    print(f"  With description : {with_desc}/{len(jobs)}")
+    print(f"  With location    : {with_loc}/{len(jobs)}")
+    print(f"{'='*50}")
+
+    print("\nRunning scorer...")
+    from score_filter import run_score_filter
+    run_score_filter(str(out_path))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="LinkedIn job scraper")
+    parser.add_argument("--setup", action="store_true",
+                        help="Open a visible browser to log into LinkedIn.")
+    parser.add_argument("--schedule", metavar="HH:MM",
+                        help="Run daily at this time. Keeps the process alive.")
+    parser.add_argument("--from-ids", metavar="PATH",
+                        help="Skip card-clicking; fetch details from a saved job_ids JSON file.")
+    args = parser.parse_args()
+
+    if args.setup:
+        run_setup()
+    elif getattr(args, "from_ids", None):
+        run_fetch_from_ids(args.from_ids)
+    elif args.schedule:
+        import schedule as sched
+        print(f"Scheduler started. Will run daily at {args.schedule}.")
+        sched.every().day.at(args.schedule).do(run_fetch)
+        run_fetch()
+        while True:
+            sched.run_pending()
+            time.sleep(60)
+    else:
+        run_fetch()

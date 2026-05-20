@@ -1,0 +1,6 @@
+anthropic
+google-genai
+playwright
+schedule
+python-dotenv
+pytest
