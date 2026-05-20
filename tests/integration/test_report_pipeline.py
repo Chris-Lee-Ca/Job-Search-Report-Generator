@@ -1,12 +1,11 @@
 """
-Integration test for generate_report — tests full main() flow with seen_jobs.json update.
+Integration test for job_search.pipeline.report.run_report — full flow with seen_jobs update.
 
 Pure-logic unit tests (parse_applied_jobs, generate_report, extract_date_from_filename)
-live in test_generate_report.py alongside the source.
+live in tests/pipeline/test_report.py.
 """
 
 import json
-import sys
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
@@ -55,22 +54,23 @@ Vancouver, BC · Full-time
 
 @pytest.mark.integration
 def test_seen_jobs_updated_after_report():
-    from generate_report import main as gen_main
+    from job_search.pipeline.report import run_report
+
+    seen_capture = {}
+
+    def capture_save(data, path=None):
+        seen_capture.update(data)
 
     with tempfile.TemporaryDirectory() as tmp:
         daily = Path(tmp) / "daily_jobs_2026-05-14.md"
         daily.write_text(SAMPLE_DAILY)
-        seen_path = Path(tmp) / "seen.json"
 
-        with patch("generate_report.SEEN_JOBS_FILE", seen_path), \
-             patch("generate_report.DATA_DIR", Path(tmp)), \
-             patch("generate_report.REPORTS_DIR", Path(tmp)):
-            sys.argv = ["generate_report.py", str(daily)]
-            gen_main()
+        with patch("job_search.pipeline.report.load_seen_jobs", return_value={}), \
+             patch("job_search.pipeline.report.save_seen_jobs", side_effect=capture_save), \
+             patch("job_search.pipeline.report.REPORTS_DIR", Path(tmp)):
+            run_report(str(daily))
 
-        seen = json.loads(seen_path.read_text())
-
-    assert seen["111111111"]["applied"] is True
-    assert seen["111111111"]["applied_date"] == "2026-05-14"
-    assert seen["333333333"]["applied"] is True
-    assert "222222222" not in seen
+    assert seen_capture["111111111"]["applied"] is True
+    assert seen_capture["111111111"]["applied_date"] == "2026-05-14"
+    assert seen_capture["333333333"]["applied"] is True
+    assert "222222222" not in seen_capture

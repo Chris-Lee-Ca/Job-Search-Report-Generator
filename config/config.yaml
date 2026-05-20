@@ -1,0 +1,141 @@
+# ── General pipeline config ────────────────────────────────────────────────────
+
+# LinkedIn search URLs to scrape each run.
+# Each entry requires a label (used for debug filenames) and a url.
+# remote_only: true tells the pre-filter to pass all jobs through regardless
+#   of location — use this for searches you've already scoped to remote-only
+#   on LinkedIn's side.
+search_urls:
+  - label: canada_remote
+    url: "https://www.linkedin.com/jobs/search-results/?keywords=software%20engineer&geoId=101174742&f_TPR=r86400"
+    remote_only: true
+  - label: vancouver
+    url: "https://www.linkedin.com/jobs/search-results/?keywords=software%20engineer&geoId=103366113&f_TPR=r86400"
+    remote_only: false
+
+# LLM provider used for scoring and hard-filter decisions.
+# provider: "claude" | "gemini"
+# model: any model supported by that provider
+# api_key_env: name of the env var in config/.env that holds the API key
+llm:
+  provider: claude
+  model: claude-haiku-4-5-20251001
+  api_key_env: ANTHROPIC_API_KEY
+
+# Plain-English filter criteria passed verbatim to the LLM alongside each job
+# description. The AI decides whether a job matches based on actual content —
+# no keyword matching. Add or remove items freely; no code changes needed.
+hard_filter_criteria:
+  - "Exclude internships, co-ops, or student positions"
+  - "Exclude staff engineer or staff developer title-level roles"
+  - "Exclude roles that explicitly require 5 or more years of experience as a hard requirement (not just preferred)"
+  - "Exclude freelance positions (contract roles are acceptable)"
+  - "Exclude onsite or hybrid roles not located in Metro Vancouver area (Vancouver, Burnaby, Richmond, Surrey, Coquitlam, New Westminster, North Vancouver, West Vancouver, Delta, Langley)"
+  - "Exclude remote roles where the company is based entirely outside Canada"
+
+# Scoring tweaks applied after the LLM assigns a base score (0–100).
+scoring:
+  # Points added to Remote jobs; half this value added to Hybrid jobs.
+  # Final score is capped at 100.
+  remote_score_bonus: 5
+
+
+# ── LinkedIn scraper config ────────────────────────────────────────────────────
+# Settings below are specific to the LinkedIn Playwright scraper.
+# They have no effect on other job providers.
+
+linkedin:
+
+  # Fast pre-filter applied to job cards BEFORE fetching detail pages.
+  # This avoids spending time and money on jobs that are obviously wrong.
+  # No LLM is used here — decisions are pure regex / string matching.
+  pre_filter:
+
+    # Companies to block outright (case-insensitive substring match on company name).
+    # Add names exactly as they appear on LinkedIn.
+    blocked_companies:
+      - "Fire Feed"
+      - "Quik Hire Staffing"
+
+    # Regex pattern for staff-level titles to block (re.IGNORECASE applied in code).
+    # Matches "Staff Engineer", "Staff Developer", "Staff Backend Engineer", etc.
+    staff_title_pattern: '\bstaff\s+(engineer|developer|software|platform|ml|sre|sde|backend|frontend|full.?stack|data|cloud|devops|infra|architect)'
+
+    # Regex pattern for lead/principal-level titles to block.
+    # Matches "Lead Developer", "Principal Engineer", "Tech Lead", "Team Lead", etc.
+    lead_principal_title_pattern: '\b(lead|principal)\s+(developer|engineer|software|platform|ml|sre|sde|backend|frontend|full.?stack|data|cloud|devops|infra|architect)|\bteam\s+lead\b|\btech\s+lead\b|\bengineering\s+lead\b'
+
+  # Location-based pre-filter for BC/Vancouver-focused job searches.
+  # All city names must be lowercase — matching is case-insensitive substring.
+  location_filter:
+
+    # Jobs in these cities always pass through to the LLM stage.
+    metro_vancouver:
+      - vancouver
+      - burnaby
+      - richmond
+      - surrey
+      - coquitlam
+      - new westminster
+      - north vancouver
+      - west vancouver
+      - delta
+      - langley
+      - port moody
+      - port coquitlam
+      - maple ridge
+      - pitt meadows
+      - abbotsford
+      - white rock
+
+    # Jobs in these cities are blocked unless the listing is flagged as remote.
+    # Covers major non-BC Canadian cities and province names.
+    blocked_non_bc_cities:
+      # Ontario
+      - toronto
+      - mississauga
+      - brampton
+      - markham
+      - vaughan
+      - oakville
+      - burlington
+      - richmond hill
+      - oshawa
+      - barrie
+      - guelph
+      - kingston
+      - windsor
+      - sudbury
+      - thunder bay
+      - whitby
+      - ajax
+      - pickering
+      - newmarket
+      - aurora
+      - kanata
+      - scarborough
+      - north york
+      - etobicoke
+      - ontario
+      # Alberta
+      - calgary
+      - edmonton
+      - alberta
+      # Other provinces / cities
+      - ottawa
+      - montreal
+      - winnipeg
+      - hamilton
+      - london
+      - waterloo
+      - kitchener
+      - saskatoon
+      - regina
+      - halifax
+      - quebec
+      - manitoba
+      - saskatchewan
+      - nova scotia
+      - new brunswick
+      - newfoundland
+      - prince edward

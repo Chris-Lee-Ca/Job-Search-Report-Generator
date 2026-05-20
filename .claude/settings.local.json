@@ -1,7 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python3)"
+      "Bash(python3)",
+      "Bash(python -m pytest tests/pipeline/ tests/providers/ -m \"not integration\" -v)",
+      "Bash(python -m pytest -m \"not integration\" -v)",
+      "Bash(python main.py --help)",
+      "Bash(python main.py fetch --help)",
+      "Bash(python main.py score --help)",
+      "Bash(python main.py report --help)"
     ]
   }
 }

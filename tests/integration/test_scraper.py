@@ -2,10 +2,10 @@
 Integration tests for LinkedIn scraping logic — require Playwright/Chromium.
 
 Pure-logic unit tests (pre_filter, strip_french, extract_job_id) live in
-job_providers/test_linkedin_provider.py alongside the source.
+tests/providers/scrapers/test_linkedin.py alongside the source.
 
 Run only when changing scraping methods:
-    pytest tests/test_scraper.py -v
+    pytest tests/integration/test_scraper.py -v
 """
 
 from pathlib import Path
@@ -15,6 +15,20 @@ FIXTURES = Path(__file__).parent / "fixtures"
 MOCK_SEARCH_HTML = (FIXTURES / "linkedin_mock.html").read_text(encoding="utf-8")
 MOCK_SEARCH_URL = "https://www.linkedin.com/jobs/search-results/?keywords=test"
 MOCK_SEARCH_ENTRY = {"label": "test", "url": MOCK_SEARCH_URL, "remote_only": False}
+
+_MINIMAL_LINKEDIN_CFG = {
+    "pre_filter": {
+        "blocked_companies": [],
+        "staff_title_pattern": r"\bstaff\s+(engineer|developer)",
+        "lead_principal_title_pattern": r"\b(lead|principal)\s+(engineer|developer)",
+        "french_section_pattern": r"(version\s+fran[çc]aise)",
+    },
+    "location_filter": {
+        "metro_vancouver": ["vancouver"],
+        "blocked_non_bc_cities": ["toronto"],
+    },
+}
+
 
 def _detail_html(title: str, company: str, description: str = "Python engineer role.") -> str:
     slug = company.lower().replace(" ", "-")
@@ -38,11 +52,12 @@ MOCK_DETAILS = {
 
 @pytest.fixture
 def provider(tmp_path):
-    from job_providers.linkedin_provider import LinkedInProvider
+    from job_search.providers.scrapers.linkedin import LinkedInProvider
     return LinkedInProvider(
         output_dir=tmp_path / "output",
         debug_dir=tmp_path / "debug",
         browser_data_dir=tmp_path / "browser_data",
+        linkedin_cfg=_MINIMAL_LINKEDIN_CFG,
     )
 
 @pytest.fixture(scope="module")

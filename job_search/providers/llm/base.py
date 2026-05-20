@@ -18,8 +18,8 @@ class JobAnalysis:
     matched_required_skills: List[str]
     matched_nice_skills: List[str]
 
-    seniority_required: str         # what the job requires, e.g. "mid (2–4 yrs)"
-    work_mode: str                  # Remote | Hybrid | Onsite | Unknown
+    seniority_required: str    # what the job requires, e.g. "mid (2–4 yrs)"
+    work_mode: str             # Remote | Hybrid | Onsite | Unknown
     industry: str
 
 

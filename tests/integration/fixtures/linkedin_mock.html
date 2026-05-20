@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!--
+    Mock LinkedIn search results page for tests.
+    Simulates the componentkey-based React structure the scraper relies on.
+    Update when fetch_jobs.py changes its card-detection strategy.
+    Reference: output/debug_*_p1.html saved on every live run.
+  -->
+  <title>Software Engineer at Acme Corp | LinkedIn</title>
+</head>
+<body>
+
+<!-- Search results cards panel -->
+<div componentkey="SearchResultsMainContent">
+  <div role="button" componentkey="card_1111111111">Software Engineer · Acme Corp</div>
+  <div role="button" componentkey="card_2222222222">Full Stack Developer · Beta Inc</div>
+  <div role="button" componentkey="card_3333333333">Platform Engineer · Gamma Ltd</div>
+</div>
+
+<!-- Detail panel — job 1111111111 pre-selected on page load -->
+<div id="detail-panel" componentkey="JobDetails_AboutTheJob_1111111111">
+  <p><span id="job-location">Vancouver, BC</span> <strong>1 hour ago</strong></p>
+</div>
+
+<script>
+var jobData = {
+  '1111111111': { title: 'Software Engineer at Acme Corp | LinkedIn',  location: 'Vancouver, BC' },
+  '2222222222': { title: 'Full Stack Developer at Beta Inc | LinkedIn', location: 'Remote' },
+  '3333333333': { title: 'Platform Engineer at Gamma Ltd | LinkedIn',   location: 'Burnaby, BC' }
+};
+
+document.querySelectorAll(
+  "[componentkey='SearchResultsMainContent'] [role='button'][componentkey]"
+).forEach(function(card) {
+  card.addEventListener('click', function() {
+    var compkey = card.getAttribute('componentkey');
+    var id = compkey.replace('card_', '');
+    var job = jobData[id];
+    if (!job) return;
+    document.title = job.title;
+    document.getElementById('job-location').textContent = job.location;
+    document.getElementById('detail-panel').setAttribute(
+      'componentkey', 'JobDetails_AboutTheJob_' + id
+    );
+  });
+});
+</script>
+
+</body>
+</html>

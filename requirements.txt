@@ -3,4 +3,6 @@ google-genai
 playwright
 schedule
 python-dotenv
+pyyaml
+click
 pytest

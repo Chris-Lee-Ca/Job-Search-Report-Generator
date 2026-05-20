@@ -7,24 +7,24 @@ Automates daily LinkedIn job screening and application tracking. Fetches job lis
 ## Pipeline overview
 
 ```
-fetch_jobs.py  →  output/raw/raw_jobs_DATE.json
+main.py fetch  →  output/raw/raw_jobs_DATE.json
                           ↓
-              score_filter.py  →  output/daily_jobs_DATE.md
-                                           ↓  (user checks boxes)
-                             generate_report.py  →  reports/applied_DATE.md
-                                                            ↓
-                                          data/seen_jobs.json  (updated)
+              main.py score  →  output/daily_jobs_DATE.md
+                                         ↓  (user checks boxes)
+                           main.py report  →  reports/applied_DATE.md
+                                                          ↓
+                                        data/seen_jobs.json  (updated)
 ```
 
-| Phase | Script | Input | Output |
-|-------|--------|-------|--------|
-| 1 — Fetch | `fetch_jobs.py` | `config/config.json` search URLs | `output/raw/raw_jobs_DATE.json` |
-| 2 — Score & Filter | `score_filter.py` | raw jobs JSON + `resume.md` | `output/daily_jobs_DATE.md` |
-| 3 — Report | `generate_report.py` | checked daily file | `reports/applied_DATE.md` |
+| Phase | Command | Input | Output |
+|-------|---------|-------|--------|
+| 1 — Fetch | `main.py fetch` | `config/config.yaml` search URLs | `output/raw/raw_jobs_DATE.json` |
+| 2 — Score & Filter | `main.py score` | raw jobs JSON + `resume.md` | `output/daily_jobs_DATE.md` |
+| 3 — Report | `main.py report` | checked daily file | `reports/applied_DATE.md` |
 
 ---
 
-## Phase 1 — Fetch (`fetch_jobs.py`)
+## Phase 1 — Fetch (`main.py fetch`)
 
 Two-phase Playwright scrape of LinkedIn search results.
 
@@ -34,15 +34,16 @@ Clicks through job cards on the search results page to collect job IDs and previ
 
 **Pre-filters applied at this stage (fast, no LLM):**
 
-| Filter | Type | Rule |
-|--------|------|------|
-| Blocked companies | String match | Fire Feed, Quik Hire Staffing |
-| Staff-level titles | Regex | `staff engineer`, `staff developer`, etc. |
-| Lead/principal titles | Regex | `lead engineer`, `principal developer`, `tech lead`, etc. |
-| Non-BC Canadian cities | String match | Toronto, Calgary, Ottawa, Montreal, etc. |
-| Non-Metro BC onsite | String match | Victoria, Kelowna, etc. (not remote) |
-| Pure Remote (no country context) | Pass-through | Sent to LLM to decide |
-| Metro Vancouver | String match | Always keep |
+All pre-filter rules are configured in the `linkedin:` section of `config/config.yaml`. No code change is needed to add/remove cities or companies.
+
+| Filter | Rule |
+|--------|------|
+| Blocked companies | Exact substring match (case-insensitive). Configured in `linkedin.pre_filter.blocked_companies`. |
+| Staff-level titles | Regex. Configured in `linkedin.pre_filter.staff_title_pattern`. |
+| Lead/principal titles | Regex. Configured in `linkedin.pre_filter.lead_principal_title_pattern`. |
+| Non-BC Canadian cities | Substring match. Configured in `linkedin.location_filter.blocked_non_bc_cities`. |
+| Non-Metro BC onsite | Not in `linkedin.location_filter.metro_vancouver` + no "remote" in location string. |
+| Metro Vancouver | Always keep. Configured in `linkedin.location_filter.metro_vancouver`. |
 
 Jobs that fail pre-filter are discarded immediately — no detail page is fetched.
 
@@ -52,28 +53,28 @@ Visits each job URL to extract the full description, company name, location, and
 
 **Post-fetch processing (code-only, no LLM):**
 
-- **French section stripped**: bilingual postings are trimmed to the English portion only before the description is stored in the JSON.
+- **French section stripped**: bilingual postings are trimmed to the English portion only. Pattern configured in `linkedin.pre_filter.french_section_pattern`.
 
 ---
 
-## Phase 2 — Score & Filter (`score_filter.py`)
+## Phase 2 — Score & Filter (`main.py score`)
 
 Reads `output/raw/raw_jobs_DATE.json` and passes each job to the configured LLM provider alongside your resume.
 
 ### Code-based steps (before and after LLM)
 
 - **Deduplication**: jobs with identical (title, company, location) across multiple LinkedIn IDs are merged.
-- **Remote/Hybrid bonus**: after the LLM returns a score, a configurable point bonus is added for Remote (+5) or Hybrid (+2.5) roles.
+- **Remote/Hybrid bonus**: after the LLM returns a score, a configurable point bonus is added for Remote (+N) or Hybrid (+N/2) roles.
 
 ### LLM-evaluated hard filters
 
-These criteria are defined in plain English in `config.json` and evaluated by the AI for each job. You can edit them freely without changing any code.
+These criteria are defined in plain English under `hard_filter_criteria` in `config/config.yaml` and evaluated by the AI for each job. Edit freely — no code changes needed.
 
 | Criterion |
 |-----------|
 | Exclude internships, co-ops, or student positions |
 | Exclude staff engineer or staff developer title-level roles |
-| Exclude roles that explicitly require more than 6 years of experience as a hard requirement |
+| Exclude roles that explicitly require 5+ years of experience as a hard requirement |
 | Exclude freelance positions (contract roles are acceptable) |
 | Exclude onsite or hybrid roles not located in Metro Vancouver |
 | Exclude remote roles where the company is based entirely outside Canada |
@@ -82,19 +83,19 @@ These criteria are defined in plain English in `config.json` and evaluated by th
 
 | Tier | Weight | What it covers |
 |------|--------|----------------|
-| Mandatory requirements + seniority | **60 pts** | Must-have skills, min years required. Seniority mismatch or missing mandatory skill = significant deduction. If no specific skills are listed (e.g. "Software Developer" at a big-tech company), the candidate's skill set is treated as a full match. |
+| Mandatory requirements + seniority | **60 pts** | Must-have skills, min years required. Seniority mismatch or missing mandatory skill = significant deduction. If no specific skills are listed, the candidate's skill set is treated as a full match. |
 | Preferred / nice-to-have skills | **25 pts** | Bonus skills and experiences that are helpful but not required. |
 | Title relevance | **15 pts** | How closely the job title matches the candidate's career trajectory. Least important tier. |
 
 Additional rules:
 - If the job requires a specific tech stack the candidate doesn't have (e.g. Java-only, .NET-only), score is capped at **15**.
-- Remote roles get a configurable bonus (default **+5 pts**). Adjust via `scoring.remote_score_bonus` in `config.json`.
+- Remote roles get a configurable bonus (default **+5 pts**). Adjust via `scoring.remote_score_bonus` in `config/config.yaml`.
 
 **Output:** `output/daily_jobs_DATE.md` — jobs sorted by score descending, each with a `- [ ] Applied` checkbox.
 
 ---
 
-## Phase 3 — Report (`generate_report.py`)
+## Phase 3 — Report (`main.py report`)
 
 After reviewing the daily file, mark jobs you applied to:
 
@@ -102,7 +103,7 @@ After reviewing the daily file, mark jobs you applied to:
 - [x] Applied
 ```
 
-Running `generate_report.py` then:
+Running `main.py report` then:
 1. Parses all checked jobs from the daily file.
 2. Writes an EI-ready Markdown table to `reports/applied_DATE.md`.
 3. Updates `data/seen_jobs.json` with applied status and date.
@@ -144,7 +145,7 @@ GEMINI_API_KEY=<your Gemini API key>
 ### 4. Log into LinkedIn (one-time)
 
 ```bash
-python fetch_jobs.py --setup
+python main.py fetch --setup
 ```
 
 A Chrome window opens. Log in normally, then press Enter in the terminal. Session cookies are saved to `browser_data/` and reused on every subsequent run. Re-run `--setup` when LinkedIn logs you out.
@@ -155,7 +156,7 @@ A Chrome window opens. Log in normally, then press Enter in the terminal. Sessio
 cp config/resume.example.md config/resume.md
 ```
 
-Edit `config/resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant. `config/resume.md` is gitignored so your personal details stay off Git.
+Edit `config/resume.md` with your background — skills, experience, and target roles. This is the single source of truth for both the scorer and the AI job assistant. `config/resume.md` is gitignored.
 
 ---
 
@@ -163,42 +164,48 @@ Edit `config/resume.md` with your background — skills, experience, and target 
 
 ```bash
 # Run once (browser window appears briefly)
-python fetch_jobs.py
+python main.py fetch
 
-# Run on a daily schedule
-python fetch_jobs.py --schedule 17:00
+# Run on a daily schedule at HH:MM
+python main.py fetch --schedule 17:00
 
-# Resume detail fetching from a saved IDs checkpoint
-python fetch_jobs.py --from-ids output/raw/job_ids_2026-05-19.json
+# Resume detail fetching from a saved IDs checkpoint (if previous run was interrupted)
+python main.py fetch --from-ids output/raw/job_ids_2026-05-19.json
 
 # Score an existing raw jobs file without re-scraping
-python score_filter.py output/raw/raw_jobs_2026-05-19.json
+python main.py score output/raw/raw_jobs_2026-05-19.json
 
 # Generate EI report from a checked daily file
-python generate_report.py output/daily_jobs_2026-05-19.md
+python main.py report output/daily_jobs_2026-05-19.md
 
 # Append to a running monthly log instead of a new file
-python generate_report.py output/daily_jobs_2026-05-19.md --append
+python main.py report output/daily_jobs_2026-05-19.md --append
 ```
 
 ---
 
-## Configuration reference (`config/config.json`)
+## Configuration reference (`config/config.yaml`)
 
-| Key | Purpose |
-|-----|---------|
-| `search_urls` | LinkedIn search URLs to scrape. Each entry: `{"label": "...", "url": "...", "remote_only": true/false}` |
-| `hard_filter_criteria` | Plain-English filter rules evaluated by the LLM. Edit freely — no code changes needed. |
+The config is a single YAML file with inline comments throughout. Key sections:
+
+| Section | Purpose |
+|---------|---------|
+| `search_urls` | LinkedIn search URLs to scrape. Each entry: `label`, `url`, `remote_only` |
+| `hard_filter_criteria` | Plain-English AI filter rules. Edit freely — no code changes needed. |
 | `llm.provider` | `"claude"` or `"gemini"` |
 | `llm.model` | Model ID (e.g. `"claude-haiku-4-5-20251001"`, `"gemini-2.0-flash"`) |
 | `llm.api_key_env` | Name of the environment variable holding the API key |
 | `scoring.remote_score_bonus` | Extra pts added for Remote roles (default `5`) |
+| `linkedin.pre_filter` | Fast pre-filter: `blocked_companies`, `staff_title_pattern`, `lead_principal_title_pattern`, `french_section_pattern` |
+| `linkedin.location_filter` | `metro_vancouver` (always keep) and `blocked_non_bc_cities` (block unless remote) |
 
-**Switching LLM providers:** change `provider`, `model`, and `api_key_env` in `config.json`. No code changes needed.
+**Switching LLM providers:** edit the `llm:` section in `config/config.yaml`. No code changes needed.
 
-```json
-{ "provider": "claude", "model": "claude-haiku-4-5-20251001", "api_key_env": "ANTHROPIC_API_KEY" }
-{ "provider": "gemini", "model": "gemini-2.0-flash",           "api_key_env": "GEMINI_API_KEY"    }
+```yaml
+llm:
+  provider: gemini
+  model: gemini-2.0-flash
+  api_key_env: GEMINI_API_KEY
 ```
 
 ---
@@ -236,34 +243,41 @@ Read the actual HTML before writing new selectors — never guess.
 ## Project layout
 
 ```
-├── fetch_jobs.py              Pipeline orchestrator (CLI entry point)
-├── score_filter.py            AI filter + scorer → daily job checklist
-├── generate_report.py         EI application report generator
-├── job_providers/
-│   ├── base.py                Abstract JobProvider interface
-│   └── linkedin_provider.py   LinkedIn / Playwright implementation
-├── providers/
-│   ├── base.py                Abstract LLMProvider interface + JobAnalysis dataclass
-│   ├── claude_provider.py     Anthropic Claude implementation
-│   └── gemini_provider.py     Google Gemini implementation
+├── main.py                        Single CLI entry point
+├── job_search/
+│   ├── config.py                  Shared YAML loader (config, resume, seen_jobs)
+│   ├── pipeline/
+│   │   ├── fetch.py               LinkedIn scrape orchestrator
+│   │   ├── score.py               AI filter + scorer → daily job checklist
+│   │   └── report.py              EI application report generator
+│   └── providers/
+│       ├── llm/
+│       │   ├── base.py            LLMProvider interface + JobAnalysis dataclass
+│       │   ├── claude.py          Anthropic Claude implementation
+│       │   └── gemini.py          Google Gemini implementation
+│       └── scrapers/
+│           ├── base.py            JobProvider abstract interface
+│           └── linkedin.py        LinkedIn / Playwright implementation
+├── tests/
+│   ├── pipeline/                  Unit tests for pipeline modules
+│   ├── providers/scrapers/        Unit tests for the LinkedIn scraper
+│   └── integration/               Integration tests (Playwright + mocked LLM)
 ├── config/
-│   ├── config.json            Search URLs, filter rules, LLM config
-│   ├── .env                   API keys (gitignored — personal)
-│   ├── .env.example           Template for .env
-│   ├── resume.md              Your background — read by scorer and AI assistant (gitignored)
-│   ├── resume.example.md      Template for resume.md
-│   ├── qa_store.md            Saved Q&A answers (gitignored — personal)
-│   ├── qa_store.example.md    Template for qa_store.md
-│   └── README.md              Field-by-field config guide
-├── browser_data/              Persistent Chrome profile from --setup (gitignored)
-├── data/seen_jobs.json        Tracks all seen jobs and applied status
+│   ├── config.yaml                All pipeline config with inline comments
+│   ├── .env                       API keys (gitignored)
+│   ├── .env.example               Template for .env
+│   ├── resume.md                  Your background (gitignored)
+│   ├── resume.example.md          Template for resume.md
+│   ├── qa_store.md                Saved Q&A answers (gitignored)
+│   └── qa_store.example.md        Template for qa_store.md
+├── browser_data/                  Persistent Chrome profile from --setup (gitignored)
+├── data/seen_jobs.json            Tracks all seen jobs and applied status
 ├── output/
-│   ├── daily_jobs_DATE.md     Daily job checklists (gitignored)
-│   ├── raw/                   Intermediate scrape artifacts (gitignored)
-│   │   ├── raw_jobs_DATE.json Full job data from detail pages
-│   │   └── job_ids_DATE.json  IDs checkpoint for --from-ids resume
-│   └── debug/                 HTML snapshots for debugging selectors
-├── reports/                   EI application reports (gitignored)
-├── tests/                     Pytest suite
-└── legacyReportGenerator/     Original manual-URL tool (independent, see its README)
+│   ├── daily_jobs_DATE.md         Daily job checklists (gitignored)
+│   ├── raw/                       Intermediate scrape artifacts (gitignored)
+│   │   ├── raw_jobs_DATE.json     Full job data from detail pages
+│   │   └── job_ids_DATE.json      IDs checkpoint for --from-ids resume
+│   └── debug/                     HTML snapshots for debugging selectors
+├── reports/                       EI application reports (gitignored)
+└── legacyReportGenerator/         Original manual-URL tool (independent, see its README)
 ```

@@ -1,59 +1,17 @@
-"""
-Score and filter jobs using AI analysis.
-
-Flow:
-  1. Load resume.md once
-  2. For each job: one AI call returns filter decision + score (rubric-guided) + display facts
-  3. Writes output/daily_jobs_YYYY-MM-DD.md and updates data/seen_jobs.json
-
-Usage:
-    python score_filter.py                                    # uses today's raw_jobs file
-    python score_filter.py output/raw/raw_jobs_2026-05-13.json
-"""
+"""Score and filter jobs using AI analysis."""
 
 from __future__ import annotations
 
-import json
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-from dotenv import load_dotenv
+from job_search.config import load_config, load_resume, load_seen_jobs, save_seen_jobs
 
-load_dotenv(Path("config") / ".env")
-
-CONFIG_FILE = Path("config") / "config.json"
-RESUME_FILE = Path("config") / "resume.md"
-DATA_DIR = Path("data")
 OUTPUT_DIR = Path("output")
 RAW_DIR = OUTPUT_DIR / "raw"
-SEEN_JOBS_FILE = DATA_DIR / "seen_jobs.json"
 
 WORK_MODE_EMOJI = {"Remote": "🌐", "Hybrid": "🏢", "Onsite": "🏛", "Unknown": "❓"}
-
-
-def load_config() -> dict:
-    with open(CONFIG_FILE) as f:
-        return json.load(f)
-
-
-def load_resume() -> str:
-    with open(RESUME_FILE, encoding="utf-8") as f:
-        return f.read()
-
-
-def load_seen_jobs() -> dict:
-    if SEEN_JOBS_FILE.exists():
-        with open(SEEN_JOBS_FILE) as f:
-            return json.load(f)
-    return {}
-
-
-def save_seen_jobs(seen: dict):
-    DATA_DIR.mkdir(exist_ok=True)
-    with open(SEEN_JOBS_FILE, "w") as f:
-        json.dump(seen, f, indent=2)
 
 
 def build_provider(config: dict):
@@ -63,10 +21,10 @@ def build_provider(config: dict):
     api_key_env = llm.get("api_key_env", "ANTHROPIC_API_KEY")
 
     if provider_name == "claude":
-        from providers.claude_provider import ClaudeProvider
+        from job_search.providers.llm.claude import ClaudeProvider
         return ClaudeProvider(model=model, api_key_env=api_key_env)
     if provider_name == "gemini":
-        from providers.gemini_provider import GeminiProvider
+        from job_search.providers.llm.gemini import GeminiProvider
         return GeminiProvider(model=model, api_key_env=api_key_env)
     raise ValueError(f"Unknown provider '{provider_name}'. Supported: claude, gemini")
 
@@ -112,6 +70,8 @@ def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
 
 
 def run_score_filter(raw_jobs_path: str | None = None):
+    import json
+
     config = load_config()
     filter_criteria = config.get("hard_filter_criteria", [])
     remote_bonus = config.get("scoring", {}).get("remote_score_bonus", 5)
@@ -127,11 +87,15 @@ def run_score_filter(raw_jobs_path: str | None = None):
         print("No jobs to process.")
         return
 
-    # Deduplicate by (title, company) — LinkedIn lists the same posting under multiple IDs
+    # Deduplicate by (title, company, location)
     _seen_keys: dict[tuple, bool] = {}
     deduped: list[dict] = []
     for job in jobs:
-        key = (job.get("title", "").lower().strip(), job.get("company", "").lower().strip(), job.get("location", "").lower().strip())
+        key = (
+            job.get("title", "").lower().strip(),
+            job.get("company", "").lower().strip(),
+            job.get("location", "").lower().strip(),
+        )
         if key not in _seen_keys:
             _seen_keys[key] = True
             deduped.append(job)
@@ -230,8 +194,3 @@ def run_score_filter(raw_jobs_path: str | None = None):
     if hasattr(provider, "_cache_hits"):
         total = provider._cache_hits + provider._cache_misses
         print(f"  Cache: {provider._cache_hits}/{total} hits ({provider._cache_misses} misses)")
-
-
-if __name__ == "__main__":
-    raw_path = sys.argv[1] if len(sys.argv) > 1 else None
-    run_score_filter(raw_path)

@@ -53,56 +53,6 @@ _LOCATION_JS = """() => {
 }"""
 
 
-# ── Pre-filter constants ───────────────────────────────────────────────────────
-
-_METRO_VAN = frozenset({
-    "vancouver", "burnaby", "richmond", "surrey", "coquitlam",
-    "new westminster", "north vancouver", "west vancouver", "delta",
-    "langley", "port moody", "port coquitlam", "maple ridge",
-    "pitt meadows", "abbotsford", "white rock",
-})
-
-_NON_BC_CA = frozenset({
-    # Ontario
-    "toronto", "mississauga", "brampton", "markham", "vaughan", "oakville",
-    "burlington", "richmond hill", "oshawa", "barrie", "guelph", "kingston",
-    "windsor", "sudbury", "thunder bay", "whitby", "ajax", "pickering",
-    "newmarket", "aurora", "kanata", "scarborough", "north york", "etobicoke",
-    "ontario",
-    # Alberta
-    "calgary", "edmonton",
-    # Other provinces/cities
-    "ottawa", "montreal", "winnipeg", "hamilton", "london", "waterloo",
-    "kitchener", "saskatoon", "regina", "halifax",
-    # Province names
-    "alberta", "quebec", "manitoba", "saskatchewan",
-    "nova scotia", "new brunswick", "newfoundland", "prince edward",
-})
-
-_STAFF_RE = re.compile(
-    r"\bstaff\s+(engineer|developer|software|platform|ml|sre|sde|"
-    r"backend|frontend|full.?stack|data|cloud|devops|infra|architect)",
-    re.IGNORECASE,
-)
-
-_LEAD_PRINCIPAL_RE = re.compile(
-    r"\b(lead|principal)\s+(developer|engineer|software|platform|ml|sre|sde|"
-    r"backend|frontend|full.?stack|data|cloud|devops|infra|architect)"
-    r"|\bteam\s+lead\b"
-    r"|\btech\s+lead\b"
-    r"|\bengineering\s+lead\b",
-    re.IGNORECASE,
-)
-
-_BLOCKED_COMPANIES: set[str] = {"fire feed", "quik hire staffing"}
-
-_FRENCH_SECTION_RE = re.compile(
-    r"(version\s+fran[çc]aise|en\s+fran[çc]ais|---\s*french|french\s+version"
-    r"|\(french\s+below\)|bilingue)",
-    re.IGNORECASE,
-)
-
-
 # ── Pure utility functions (module-level for easy testing) ─────────────────────
 
 def extract_job_id(url: str) -> Optional[str]:
@@ -130,6 +80,13 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+_FRENCH_SECTION_RE = re.compile(
+    r"(version\s+fran[çc]aise|en\s+fran[çc]ais|---\s*french|french\s+version"
+    r"|\(french\s+below\)|bilingue)",
+    re.IGNORECASE,
+)
+
+
 def _strip_french_section(text: str) -> str:
     """Remove bilingual French section from a job description, keeping only English."""
     m = _FRENCH_SECTION_RE.search(text)
@@ -139,19 +96,33 @@ def _strip_french_section(text: str) -> str:
 
 
 def _passes_pre_filter(
-    title: str, location: str, assume_remote: bool = False, company: str = ""
+    title: str,
+    location: str,
+    cfg: dict,
+    assume_remote: bool = False,
+    company: str = "",
 ) -> tuple[bool, str]:
     """
     Code-based fast filter run before any detail page is fetched.
+    cfg is the linkedin: section from config.yaml.
     Returns (True, "") to keep the job, or (False, reason) to skip it.
     """
-    if company.lower() in _BLOCKED_COMPANIES:
+    pre = cfg.get("pre_filter", {})
+    loc_cfg = cfg.get("location_filter", {})
+
+    # Blocked companies
+    blocked_companies = {c.lower() for c in pre.get("blocked_companies", [])}
+    if company.lower() in blocked_companies:
         return False, f"blocked company: {company}"
 
-    if _STAFF_RE.search(title):
+    # Staff-level titles
+    staff_pattern = pre.get("staff_title_pattern", "")
+    if staff_pattern and re.search(staff_pattern, title, re.IGNORECASE):
         return False, "staff-level title"
 
-    if _LEAD_PRINCIPAL_RE.search(title):
+    # Lead/principal-level titles
+    lead_pattern = pre.get("lead_principal_title_pattern", "")
+    if lead_pattern and re.search(lead_pattern, title, re.IGNORECASE):
         return False, "lead/principal-level title"
 
     if not location:
@@ -159,10 +130,13 @@ def _passes_pre_filter(
 
     loc = location.lower()
 
-    if any(city in loc for city in _METRO_VAN):
+    metro_van = loc_cfg.get("metro_vancouver", [])
+    blocked_non_bc = loc_cfg.get("blocked_non_bc_cities", [])
+
+    if any(city in loc for city in metro_van):
         return True, ""
 
-    if any(city in loc for city in _NON_BC_CA):
+    if any(city in loc for city in blocked_non_bc):
         return False, f"non-BC city: {location}"
 
     is_remote = "remote" in loc
@@ -189,10 +163,17 @@ def _passes_pre_filter(
 class LinkedInProvider(JobProvider):
     """Playwright-based LinkedIn job scraper."""
 
-    def __init__(self, output_dir: Path, debug_dir: Path, browser_data_dir: Path):
+    def __init__(
+        self,
+        output_dir: Path,
+        debug_dir: Path,
+        browser_data_dir: Path,
+        linkedin_cfg: dict,
+    ):
         self.output_dir = output_dir
         self.debug_dir = debug_dir
         self.browser_data_dir = browser_data_dir
+        self.linkedin_cfg = linkedin_cfg
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -210,7 +191,7 @@ class LinkedInProvider(JobProvider):
             input("Press Enter once you are logged in and can see your LinkedIn feed...")
             context.close()
 
-        print("\nSession saved to browser_data/. Run `python fetch_jobs.py` to start scraping.")
+        print("\nSession saved to browser_data/. Run `python main.py fetch` to start scraping.")
 
     def fetch_jobs(self, search_urls: List[dict]) -> List[dict]:
         """
@@ -221,7 +202,7 @@ class LinkedInProvider(JobProvider):
         from playwright.sync_api import sync_playwright
 
         if not self.browser_data_dir.exists() or not any(self.browser_data_dir.iterdir()):
-            print("No saved session found. Run `python fetch_jobs.py --setup` first.")
+            print("No saved session found. Run `python main.py fetch --setup` first.")
             return []
 
         jobs: dict[str, dict] = {}
@@ -234,7 +215,7 @@ class LinkedInProvider(JobProvider):
             self._goto(check, "https://www.linkedin.com/feed/")
             time.sleep(random.uniform(3, 7))
             if any(x in check.url for x in ("login", "authwall", "checkpoint")):
-                print("Session expired. Run `python fetch_jobs.py --setup` to log in again.")
+                print("Session expired. Run `python main.py fetch --setup` to log in again.")
                 check.close()
                 context.close()
                 return []
@@ -296,7 +277,7 @@ class LinkedInProvider(JobProvider):
             if not job_id:
                 continue
             ok, _ = _passes_pre_filter(
-                item.get("title", ""), item.get("location", ""),
+                item.get("title", ""), item.get("location", ""), self.linkedin_cfg,
                 company=item.get("company", ""),
             )
             if not ok:
@@ -527,7 +508,7 @@ class LinkedInProvider(JobProvider):
             skipped: list[str] = []
             for job_id, meta in preview.items():
                 ok, reason = _passes_pre_filter(
-                    meta["title"], meta["location"],
+                    meta["title"], meta["location"], self.linkedin_cfg,
                     assume_remote=remote_only,
                     company=meta.get("company", ""),
                 )

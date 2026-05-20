@@ -1,19 +1,18 @@
 """
-Integration tests for score_filter.run_score_filter — mocked LLM, real config file.
+Integration tests for job_search.pipeline.score.run_score_filter — mocked LLM, real config.
 
 Pure-logic unit tests (_effective_score, _format_job_section, build_provider, etc.)
-live in test_score_filter.py alongside the source.
+live in tests/pipeline/test_score.py.
 """
 
 import json
-import os
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from providers.base import JobAnalysis
+from job_search.providers.llm.base import JobAnalysis
 
 
 def _analysis(**overrides) -> JobAnalysis:
@@ -36,22 +35,30 @@ class _MockProvider:
         return next(self._queue)
 
 
+_MOCK_CONFIG = {
+    "llm": {"provider": "claude", "model": "claude-haiku-4-5-20251001", "api_key_env": "ANTHROPIC_API_KEY"},
+    "hard_filter_criteria": [],
+    "scoring": {"remote_score_bonus": 5},
+}
+
+
 def _run_with_mock(jobs: list, analyses: list, tmp_dir: str) -> str:
     """Run score_filter against mock jobs and return the output markdown content."""
-    raw_path = os.path.join(tmp_dir, "raw_jobs_2026-05-14.json")
-    with open(raw_path, "w") as f:
-        json.dump(jobs, f)
+    raw_path = Path(tmp_dir) / "raw_jobs_2026-05-14.json"
+    raw_path.write_text(json.dumps(jobs))
 
     provider = _MockProvider(analyses)
     seen_path = Path(tmp_dir) / "seen.json"
     out_dir = Path(tmp_dir)
 
-    with patch("score_filter.build_provider", return_value=provider), \
-         patch("score_filter.SEEN_JOBS_FILE", seen_path), \
-         patch("score_filter.OUTPUT_DIR", out_dir), \
-         patch("score_filter.load_resume", return_value="Mock resume content"):
-        from score_filter import run_score_filter
-        run_score_filter(raw_path)
+    with patch("job_search.pipeline.score.build_provider", return_value=provider), \
+         patch("job_search.pipeline.score.load_config", return_value=_MOCK_CONFIG), \
+         patch("job_search.pipeline.score.load_resume", return_value="Mock resume content"), \
+         patch("job_search.pipeline.score.load_seen_jobs", return_value={}), \
+         patch("job_search.pipeline.score.save_seen_jobs") as mock_save, \
+         patch("job_search.pipeline.score.OUTPUT_DIR", out_dir):
+        from job_search.pipeline.score import run_score_filter
+        run_score_filter(str(raw_path))
 
     out_files = sorted(out_dir.glob("daily_jobs_*.md"))
     assert out_files, "Output markdown was not created"
@@ -103,8 +110,27 @@ def test_jobs_sorted_by_score_descending():
 def test_new_jobs_written_to_seen_jobs():
     jobs = [{"id": "xyz", "title": "Dev", "company": "Org", "location": "",
               "url": "https://linkedin.com/jobs/view/xyz/", "description": ""}]
+
+    seen_capture = {}
+
+    def capture_save(data, path=None):
+        seen_capture.update(data)
+
+    raw_path_holder = {}
+
     with tempfile.TemporaryDirectory() as tmp:
-        _run_with_mock(jobs, [_analysis()], tmp)
-        seen = json.loads((Path(tmp) / "seen.json").read_text())
-    assert "xyz" in seen
-    assert seen["xyz"]["applied"] is False
+        raw_path = Path(tmp) / "raw_jobs_2026-05-14.json"
+        raw_path.write_text(json.dumps(jobs))
+        out_dir = Path(tmp)
+
+        with patch("job_search.pipeline.score.build_provider", return_value=_MockProvider([_analysis()])), \
+             patch("job_search.pipeline.score.load_config", return_value=_MOCK_CONFIG), \
+             patch("job_search.pipeline.score.load_resume", return_value="Resume"), \
+             patch("job_search.pipeline.score.load_seen_jobs", return_value={}), \
+             patch("job_search.pipeline.score.save_seen_jobs", side_effect=capture_save), \
+             patch("job_search.pipeline.score.OUTPUT_DIR", out_dir):
+            from job_search.pipeline.score import run_score_filter
+            run_score_filter(str(raw_path))
+
+    assert "xyz" in seen_capture
+    assert seen_capture["xyz"]["applied"] is False
