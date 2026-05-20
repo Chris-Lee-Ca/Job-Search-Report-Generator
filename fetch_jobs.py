@@ -143,11 +143,17 @@ _LEAD_PRINCIPAL_RE = re.compile(
 )
 
 
-def _passes_pre_filter(title: str, location: str, assume_remote: bool = False) -> tuple[bool, str]:
+_BLOCKED_COMPANIES: set[str] = {"fire feed", "quik hire staffing"}
+
+
+def _passes_pre_filter(title: str, location: str, assume_remote: bool = False, company: str = "") -> tuple[bool, str]:
     """
     Returns (True, "") if the job should be kept, or (False, reason) to skip.
     assume_remote=True: caller confirmed the search has the LinkedIn Remote filter applied.
     """
+    if company.lower() in _BLOCKED_COMPANIES:
+        return False, f"blocked company: {company}"
+
     if _STAFF_RE.search(title):
         return False, "staff-level title"
 
@@ -517,7 +523,7 @@ def _scrape_search_url(page, url_entry: dict, jobs: dict, url_idx: int):
         new_count = 0
         skipped: list[str] = []
         for job_id, meta in preview.items():
-            ok, reason = _passes_pre_filter(meta["title"], meta["location"], assume_remote=remote_only)
+            ok, reason = _passes_pre_filter(meta["title"], meta["location"], assume_remote=remote_only, company=meta.get("company", ""))
             if not ok:
                 skipped.append(reason)
                 continue
@@ -652,7 +658,7 @@ def _fetch_job_detail(page, job: dict, save_html: bool = False):
         # Strip any trailing "… more" button text (button is inside the span)
         raw_desc = raw_desc.replace("… more", "").replace("…more", "").strip()
         if raw_desc:
-            job["description"] = _clean(raw_desc)
+            job["description"] = _strip_french_section(_clean(raw_desc))
 
     if not job["description"]:
         for sel in [
@@ -664,7 +670,7 @@ def _fetch_job_detail(page, job: dict, save_html: bool = False):
         ]:
             el = page.query_selector(sel)
             if el and el.inner_text().strip():
-                job["description"] = _clean(el.inner_text())
+                job["description"] = _strip_french_section(_clean(el.inner_text()))
                 break
 
     # Employment type
@@ -694,6 +700,20 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+_FRENCH_SECTION_RE = re.compile(
+    r"(version\s+fran[çc]aise|en\s+fran[çc]ais|---\s*french|french\s+version"
+    r"|\(french\s+below\)|bilingue)",
+    re.IGNORECASE,
+)
+
+
+def _strip_french_section(text: str) -> str:
+    m = _FRENCH_SECTION_RE.search(text)
+    if m:
+        return text[: m.start()].strip()
+    return text
+
+
 def run_fetch_from_ids(ids_path: str):
     """Skip card-clicking; read saved job_ids JSON, apply pre-filter, fetch details."""
     path = Path(ids_path)
@@ -710,7 +730,7 @@ def run_fetch_from_ids(ids_path: str):
         job_id = item.get("id", "")
         if not job_id:
             continue
-        ok, reason = _passes_pre_filter(item.get("title", ""), item.get("location", ""))
+        ok, reason = _passes_pre_filter(item.get("title", ""), item.get("location", ""), company=item.get("company", ""))
         if not ok:
             skipped += 1
             continue

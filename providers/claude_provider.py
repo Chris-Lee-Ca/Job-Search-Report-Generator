@@ -42,6 +42,7 @@ This is the most critical tier. Evaluate:
 - A seniority mismatch (e.g. job requires 5+ years, candidate has 3) = significant deduction.
 - A missing mandatory skill = significant deduction.
 - If the job is primarily seeking a specific tech stack the candidate does not have (e.g. Java specialist, .NET specialist), set primary_tech_mismatch=true and cap the total score at 15.
+- If the job does NOT list specific required technologies or skills (e.g. just "Software Developer" or "Software Engineer" with no tech stack), treat the candidate's skill set as a full match for Tier 1 hard skills and score based on title alignment and seniority only.
 
 **Tier 2 — Preferred / Nice-to-Have Requirements (25 pts)**
 - How many of the preferred or nice-to-have skills / experiences does the candidate have?

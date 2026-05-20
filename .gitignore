@@ -7,3 +7,4 @@ __pycache__/
 .playwright/
 browser_data/
 .venv
+.claude
