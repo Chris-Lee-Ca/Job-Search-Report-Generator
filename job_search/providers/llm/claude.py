@@ -15,12 +15,10 @@ SYSTEM_PROMPT = """You are a job-fit analyst. Given a candidate's resume and a j
 
 Always respond with a single JSON object and nothing else."""
 
-RESUME_PREFIX_TEMPLATE = """## Candidate Resume
-{resume}
+RESUME_BLOCK_TEMPLATE = """## Candidate Resume
+{resume}"""
 
-"""
-
-JOB_SUFFIX_TEMPLATE = """## Job Title
+JOB_USER_TEMPLATE = """## Job Title
 {job_title}
 
 ## Job Description
@@ -85,31 +83,30 @@ class ClaudeProvider(LLMProvider):
     ) -> JobAnalysis:
         criteria_text = "\n".join(f"- {c}" for c in filter_criteria)
 
-        resume_block = {
-            "type": "text",
-            "text": RESUME_PREFIX_TEMPLATE.format(resume=resume),
-            "cache_control": {"type": "ephemeral"},
-        }
-        job_block = {
-            "type": "text",
-            "text": JOB_SUFFIX_TEMPLATE.format(
-                job_title=job_title,
-                job_description=job_description,
-                filter_criteria=criteria_text,
-            ),
-        }
+        # System array: static context cached as a shared prefix across all calls.
+        # cache_control on the resume block covers system_prompt + resume together,
+        # maximising the token count that counts toward the caching minimum threshold.
+        system = [
+            {"type": "text", "text": SYSTEM_PROMPT},
+            {
+                "type": "text",
+                "text": RESUME_BLOCK_TEMPLATE.format(resume=resume),
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+
+        # User message: job-specific content only (varies per call, never cached).
+        user_content = JOB_USER_TEMPLATE.format(
+            job_title=job_title,
+            job_description=job_description,
+            filter_criteria=criteria_text,
+        )
 
         response = self.client.messages.create(
             model=self.model,
             max_tokens=1024,
-            system=[
-                {
-                    "type": "text",
-                    "text": SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": [resume_block, job_block]}],
+            system=system,
+            messages=[{"role": "user", "content": user_content}],
         )
 
         usage = response.usage
