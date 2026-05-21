@@ -14,13 +14,25 @@ search_urls:
     remote_only: false
 
 # LLM provider used for scoring and hard-filter decisions.
-# provider: "claude" | "gemini"
+# provider: "claude" | "gemini" | "ollama"
 # model: any model supported by that provider
-# api_key_env: name of the env var in config/.env that holds the API key
+# api_key_env: name of the env var in config/.env that holds the API key (not needed for ollama)
+# base_url: Ollama API endpoint (optional, defaults to http://localhost:11434/v1)
+#
+# Ollama setup (one-time, free local inference):
+#   brew install ollama
+#   ollama pull qwen2.5:7b
 llm:
-  provider: claude
-  model: claude-haiku-4-5-20251001
-  api_key_env: ANTHROPIC_API_KEY
+  provider: ollama
+  model: qwen2.5:7b
+  base_url: http://localhost:11434/v1
+  num_threads: 4   # leave ~half the M1 cores free; remove to use all cores
+
+# Claude fallback (comment out ollama block above and uncomment this):
+# llm:
+#   provider: claude
+#   model: claude-haiku-4-5-20251001
+#   api_key_env: ANTHROPIC_API_KEY
 
 # Plain-English filter criteria passed verbatim to the LLM alongside each job
 # description. The AI decides whether a job matches based on actual content —
@@ -39,23 +51,22 @@ scoring:
   # Final score is capped at 100.
   remote_score_bonus: 5
 
-
 # ── LinkedIn scraper config ────────────────────────────────────────────────────
 # Settings below are specific to the LinkedIn Playwright scraper.
 # They have no effect on other job providers.
 
 linkedin:
-
   # Fast pre-filter applied to job cards BEFORE fetching detail pages.
   # This avoids spending time and money on jobs that are obviously wrong.
   # No LLM is used here — decisions are pure regex / string matching.
   pre_filter:
-
     # Companies to block outright (case-insensitive substring match on company name).
     # Add names exactly as they appear on LinkedIn.
     blocked_companies:
       - "Fire Feed"
       - "Quik Hire Staffing"
+      - "Turing"
+      - "Hire Feed"
 
     # Regex pattern for staff-level titles to block (re.IGNORECASE applied in code).
     # Matches "Staff Engineer", "Staff Developer", "Staff Backend Engineer", etc.
@@ -68,7 +79,6 @@ linkedin:
   # Location-based pre-filter for BC/Vancouver-focused job searches.
   # All city names must be lowercase — matching is case-insensitive substring.
   location_filter:
-
     # Jobs in these cities always pass through to the LLM stage.
     metro_vancouver:
       - vancouver

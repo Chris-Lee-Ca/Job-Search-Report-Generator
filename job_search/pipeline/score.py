@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -26,7 +27,12 @@ def build_provider(config: dict):
     if provider_name == "gemini":
         from job_search.providers.llm.gemini import GeminiProvider
         return GeminiProvider(model=model, api_key_env=api_key_env)
-    raise ValueError(f"Unknown provider '{provider_name}'. Supported: claude, gemini")
+    if provider_name == "ollama":
+        from job_search.providers.llm.ollama import OllamaProvider
+        base_url = llm.get("base_url", "http://localhost:11434/v1")
+        num_threads = llm.get("num_threads")
+        return OllamaProvider(model=model, base_url=base_url, num_threads=num_threads)
+    raise ValueError(f"Unknown provider '{provider_name}'. Supported: claude, gemini, ollama")
 
 
 def _effective_score(score: int, work_mode: str, bonus: int) -> int:
@@ -107,8 +113,11 @@ def run_score_filter(raw_jobs_path: str | None = None):
     resume = load_resume()
     seen = load_seen_jobs()
     provider = build_provider(config)
-    today = datetime.now().strftime("%Y-%m-%d")
-    display_date = datetime.now().strftime("%B %d, %Y")
+    # Use the date embedded in the input filename (raw_jobs_YYYY-MM-DD.json) so
+    # scoring an old file doesn't overwrite today's output.
+    date_match = re.search(r"(\d{4}-\d{2}-\d{2})", str(raw_jobs_path))
+    today = date_match.group(1) if date_match else datetime.now().strftime("%Y-%m-%d")
+    display_date = datetime.strptime(today, "%Y-%m-%d").strftime("%B %d, %Y")
 
     scored_jobs = []
     filtered_jobs = []
