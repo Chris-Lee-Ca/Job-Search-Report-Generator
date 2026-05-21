@@ -30,15 +30,16 @@ Two-phase Playwright scrape of LinkedIn search results.
 
 ### Phase 1a — Card collection (code-only, no LLM)
 
-Clicks through job cards on the search results page to collect job IDs and preview metadata (title, company, location). Saves a checkpoint to `output/raw/job_ids_DATE.json` so you can resume detail fetching with `--from-ids` if interrupted.
+Clicks through job cards on the search results page to collect job IDs and preview metadata (title, location). Saves a checkpoint to `output/raw/job_ids_DATE.json` so you can resume detail fetching with `--from-ids` if interrupted.
+
+> **Note:** the card preview does not expose the company name reliably. Company is only available after the detail page is fetched (Phase 1b).
 
 **Pre-filters applied at this stage (fast, no LLM):**
 
-All pre-filter rules are configured in the `linkedin:` section of `config/config.yaml`. No code change is needed to add/remove cities or companies.
+All pre-filter rules are configured in the `linkedin:` section of `config/config.yaml`. No code change is needed to add/remove cities or patterns.
 
 | Filter | Rule |
 |--------|------|
-| Blocked companies | Exact substring match (case-insensitive). Configured in `linkedin.pre_filter.blocked_companies`. |
 | Staff-level titles | Regex. Configured in `linkedin.pre_filter.staff_title_pattern`. |
 | Lead/principal titles | Regex. Configured in `linkedin.pre_filter.lead_principal_title_pattern`. |
 | Non-BC Canadian cities | Substring match. Configured in `linkedin.location_filter.blocked_non_bc_cities`. |
@@ -53,7 +54,8 @@ Visits each job URL to extract the full description, company name, location, and
 
 **Post-fetch processing (code-only, no LLM):**
 
-- **French section stripped**: bilingual postings are trimmed to the English portion only. Pattern configured in `linkedin.pre_filter.french_section_pattern`.
+- **Blocked companies**: after the detail page is fetched and the company name is known, jobs from blocked companies are removed. Configured in `linkedin.pre_filter.blocked_companies` (case-insensitive substring match).
+- **French section stripped**: bilingual postings are trimmed to the English portion only (always on, hardcoded).
 
 ---
 
@@ -196,7 +198,7 @@ The config is a single YAML file with inline comments throughout. Key sections:
 | `llm.model` | Model ID (e.g. `"claude-haiku-4-5-20251001"`, `"gemini-2.0-flash"`) |
 | `llm.api_key_env` | Name of the environment variable holding the API key |
 | `scoring.remote_score_bonus` | Extra pts added for Remote roles (default `5`) |
-| `linkedin.pre_filter` | Fast pre-filter: `blocked_companies`, `staff_title_pattern`, `lead_principal_title_pattern`, `french_section_pattern` |
+| `linkedin.pre_filter` | `blocked_companies` (applied after detail fetch), `staff_title_pattern`, `lead_principal_title_pattern` (applied at card stage) |
 | `linkedin.location_filter` | `metro_vancouver` (always keep) and `blocked_non_bc_cities` (block unless remote) |
 
 **Switching LLM providers:** edit the `llm:` section in `config/config.yaml`. No code changes needed.
