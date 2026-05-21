@@ -156,3 +156,52 @@ def test_extract_job_id_returns_none_for_garbage():
     from job_search.providers.scrapers.linkedin import extract_job_id
     assert extract_job_id("https://www.linkedin.com/feed/") is None
     assert extract_job_id("") is None
+
+
+# ── _filter_blocked_companies ─────────────────────────────────────────────────
+# These tests confirm that company filtering happens AFTER detail fetch,
+# using the company name populated from the detail page (not the card preview).
+
+@pytest.fixture
+def provider(linkedin_cfg, tmp_path):
+    from job_search.providers.scrapers.linkedin import LinkedInProvider
+    return LinkedInProvider(
+        output_dir=tmp_path,
+        debug_dir=tmp_path,
+        browser_data_dir=tmp_path,
+        linkedin_cfg=linkedin_cfg,
+    )
+
+def _make_jobs(*companies):
+    return {
+        str(i): {"id": str(i), "title": "Software Engineer", "company": c, "location": "Vancouver, BC"}
+        for i, c in enumerate(companies)
+    }
+
+def test_filter_blocked_removes_quik_hire(provider):
+    jobs = _make_jobs("Quik Hire Staffing", "Acme Corp")
+    result = provider._filter_blocked_companies(jobs)
+    companies = [j["company"] for j in result.values()]
+    assert "Quik Hire Staffing" not in companies
+    assert "Acme Corp" in companies
+
+def test_filter_blocked_removes_fire_feed(provider):
+    jobs = _make_jobs("Fire Feed", "Good Company")
+    result = provider._filter_blocked_companies(jobs)
+    assert all(j["company"] != "Fire Feed" for j in result.values())
+
+def test_filter_blocked_case_insensitive(provider):
+    jobs = _make_jobs("QUIK HIRE STAFFING", "quik hire staffing", "Quik Hire Staffing")
+    result = provider._filter_blocked_companies(jobs)
+    assert len(result) == 0
+
+def test_filter_blocked_passes_non_blocked(provider):
+    jobs = _make_jobs("Acme Corp", "Beta Inc", "Gamma Ltd")
+    result = provider._filter_blocked_companies(jobs)
+    assert len(result) == 3
+
+def test_filter_blocked_empty_company_field_passes(provider):
+    # Jobs from _read_preview have company="" — they must not be blocked by mistake.
+    jobs = _make_jobs("")
+    result = provider._filter_blocked_companies(jobs)
+    assert len(result) == 1

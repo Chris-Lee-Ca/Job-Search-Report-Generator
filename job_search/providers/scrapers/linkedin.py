@@ -76,6 +76,7 @@ def _parse_page_title(page_title: str) -> str:
     return title
 
 
+
 def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -258,6 +259,7 @@ class LinkedInProvider(JobProvider):
         print(f"{'─'*50}")
 
         self._fetch_all_details(jobs)
+        jobs = self._filter_blocked_companies(jobs)
         return list(jobs.values())
 
     def fetch_jobs_from_ids(self, ids_path: str) -> List[dict]:
@@ -301,9 +303,23 @@ class LinkedInProvider(JobProvider):
             return []
 
         self._fetch_all_details(jobs)
+        jobs = self._filter_blocked_companies(jobs)
         return list(jobs.values())
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _filter_blocked_companies(self, jobs: dict) -> dict:
+        blocked = {
+            c.lower()
+            for c in self.linkedin_cfg.get("pre_filter", {}).get("blocked_companies", [])
+        }
+        if not blocked:
+            return jobs
+        filtered = {jid: j for jid, j in jobs.items() if j.get("company", "").lower() not in blocked}
+        removed = len(jobs) - len(filtered)
+        if removed:
+            print(f"Blocked-company filter removed {removed} job(s) after detail fetch.")
+        return filtered
 
     def _launch_context(self, p):
         """Persistent Playwright context reusing the same Chrome profile (always headed)."""
@@ -388,6 +404,9 @@ class LinkedInProvider(JobProvider):
         def _read_preview() -> dict:
             title = _parse_page_title(page.title())
             location = page.evaluate(_LOCATION_JS) or ""
+            # company is intentionally "" — the card DOM does not expose it reliably.
+            # Company name is only available after the detail page fetch.
+            # Apply company blocklist in _filter_blocked_companies(), not here.
             return {"title": title, "company": "", "location": _clean(location)}
 
         preselected = page.query_selector('[componentkey*="JobDetails_AboutTheJob_"]')
