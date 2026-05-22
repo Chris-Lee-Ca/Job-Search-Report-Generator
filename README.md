@@ -210,7 +210,7 @@ llm:
   api_key_env: GEMINI_API_KEY
 ```
 
-**Running the LLM on a remote GPU (recommended for speed):** if you have a Windows machine with a dedicated NVIDIA GPU on the same network, you can run Ollama there and connect from your Mac — `qwen2.5:7b` on an RTX 4070 takes ~2–3 seconds/job vs 30–90 seconds on an M1 Mac. Change `base_url` in `config/config.yaml` to point to the Windows machine's IP. See [docs/windows-gpu-ollama.md](docs/windows-gpu-ollama.md) for the full setup guide including firewall configuration.
+**Running the LLM on a remote GPU (recommended for speed):** if you have a Windows machine with a dedicated NVIDIA GPU on the same network, you can run Ollama there and connect from your Mac — a dedicated GPU takes ~2–3 seconds/job vs 30–90 seconds on a Mac using CPU/Metal. Change `base_url` in `config/config.yaml` to point to the Windows machine's IP. See [docs/windows-gpu-ollama.md](docs/windows-gpu-ollama.md) for the full setup guide including firewall configuration.
 
 ---
 

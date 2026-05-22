@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from datetime import datetime
@@ -29,7 +30,7 @@ def build_provider(config: dict):
         return GeminiProvider(model=model, api_key_env=api_key_env)
     if provider_name == "ollama":
         from job_search.providers.llm.ollama import OllamaProvider
-        base_url = llm.get("base_url", "http://localhost:11434/v1")
+        base_url = os.getenv("OLLAMA_BASE_URL") or llm.get("base_url", "http://localhost:11434/v1")
         num_threads = llm.get("num_threads")
         return OllamaProvider(model=model, base_url=base_url, num_threads=num_threads)
     raise ValueError(f"Unknown provider '{provider_name}'. Supported: claude, gemini, ollama")

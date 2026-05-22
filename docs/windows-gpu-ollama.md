@@ -1,8 +1,8 @@
 # Running Ollama on a Windows GPU (remote LLM)
 
-This guide sets up Ollama on a Windows machine with a dedicated GPU (tested on RTX 4070) and connects the Mac pipeline to it over a local WiFi network.
+This guide sets up Ollama on a Windows machine with a dedicated NVIDIA GPU and connects the Mac pipeline to it over a local WiFi network.
 
-**Why bother?** An RTX 4070 runs `qwen2.5:7b` at ~2–3 seconds/job vs 30–90 seconds on an M1 Mac CPU/Metal. For 200 jobs that's ~10 minutes vs 1–5 hours.
+**Why bother?** A dedicated GPU runs `qwen2.5:7b` at ~2–3 seconds/job vs 30–90 seconds on a Mac using CPU/Metal. For 200 jobs that's ~10 minutes vs 1–5 hours.
 
 ---
 
@@ -130,16 +130,16 @@ netsh advfirewall firewall delete rule name="Ollama - Mac only"
 Open PowerShell and pull whichever model you want to run:
 
 ```powershell
-ollama pull qwen2.5:7b    # recommended — fits in 4070's 12GB VRAM
+ollama pull qwen2.5:7b    # recommended starting point
 ```
 
-| Model | VRAM needed | Est. speed on 4070 | Quality |
-|-------|------------|-------------------|---------|
+| Model | VRAM needed | Est. speed (GPU) | Quality |
+|-------|------------|-----------------|---------|
 | `qwen2.5:3b` | ~2 GB | ~0.8–1.5 s/job | Lower — misses some skill matches |
 | `qwen2.5:7b` | ~4.5 GB | ~2–3 s/job | Good — recommended |
-| `qwen2.5:14b` | ~8.5 GB | ~3–5 s/job | Better — fits in 12 GB VRAM |
+| `qwen2.5:14b` | ~8.5 GB | ~3–5 s/job | Better quality |
 
-The 7b model hits the best quality/speed balance for this job scoring task.
+The 7b model hits the best quality/speed balance for this job scoring task. Check your GPU's VRAM to confirm the model fits — run `nvidia-smi` and look at the total memory.
 
 ---
 
@@ -173,19 +173,17 @@ If you get a connection refused or timeout, double-check:
 
 ---
 
-## 7. Update config.yaml on your Mac
+## 7. Set your Windows IP in config/.env on your Mac
 
-Edit `config/config.yaml` — change the `base_url` to point to your Windows machine:
+The Windows machine's IP goes in `config/.env` (gitignored), not in `config.yaml`, so it is never committed to the repository.
 
-```yaml
-llm:
-  provider: ollama
-  model: qwen2.5:7b          # or whichever model you pulled on Windows
-  base_url: http://192.168.1.100:11434/v1   # replace with your Windows IP
-  num_threads: 6             # ignored when running remotely, but harmless
+Add this line to `config/.env`, replacing the IP with your Windows machine's actual address from step 5:
+
+```
+OLLAMA_BASE_URL=http://192.168.1.100:11434/v1
 ```
 
-No other code changes needed — the pipeline uses this URL for all LLM calls.
+The pipeline reads `OLLAMA_BASE_URL` at startup and uses it instead of the `base_url` value in `config/config.yaml`. Leave `config.yaml` as-is — it keeps `http://localhost:11434/v1` as the safe default for when the env var is not set (i.e. when running Ollama locally on the Mac).
 
 ---
 
@@ -197,7 +195,31 @@ Run the benchmark file (2 jobs) and confirm it uses the remote Windows GPU:
 time python main.py score output/raw/benchmark_2jobs.json
 ```
 
-With `qwen2.5:7b` on the 4070 you should see each job complete in roughly 2–4 seconds (vs 30–90 seconds on the Mac).
+Each job should complete in roughly 2–4 seconds with a 7b model on a dedicated GPU.
+
+---
+
+## Monitoring activity
+
+Ollama writes a log file to your AppData folder. To tail it live in PowerShell:
+
+```powershell
+Get-Content -Path "$env:LOCALAPPDATA\Ollama\server.log" -Wait -Tail 30
+```
+
+Every request from the Mac will appear here. When a scoring job arrives you'll see lines like:
+
+```
+[GIN] POST /api/chat  200  2.341s
+[GIN] POST /api/chat  200  1.987s
+```
+
+The method, status code, and response time are logged for each call. Keep this window open on your Windows machine while `python main.py score` runs on the Mac to confirm requests are arriving and how fast they complete.
+
+To open the log folder in Explorer directly:
+```powershell
+explorer "$env:LOCALAPPDATA\Ollama"
+```
 
 ---
 

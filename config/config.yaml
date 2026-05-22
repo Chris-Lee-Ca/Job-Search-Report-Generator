@@ -17,7 +17,8 @@ search_urls:
 # provider: "claude" | "gemini" | "ollama"
 # model: any model supported by that provider
 # api_key_env: name of the env var in config/.env that holds the API key (not needed for ollama)
-# base_url: Ollama API endpoint (optional, defaults to http://localhost:11434/v1)
+# base_url: Ollama API endpoint. Defaults to localhost; override with OLLAMA_BASE_URL in config/.env
+#           (use OLLAMA_BASE_URL to point to a remote GPU without committing your IP to git)
 #
 # Ollama setup (one-time, free local inference):
 #   brew install ollama
@@ -26,7 +27,7 @@ llm:
   provider: ollama
   model: qwen2.5:7b
   base_url: http://localhost:11434/v1
-  num_threads: 4   # leave ~half the M1 cores free; remove to use all cores
+  # num_threads: 4   # leave ~half the M1 cores free; remove to use all cores
 
 # Claude fallback (comment out ollama block above and uncomment this):
 # llm:
