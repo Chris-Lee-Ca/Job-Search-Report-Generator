@@ -56,6 +56,11 @@ scoring:
 # They have no effect on other job providers.
 
 linkedin:
+  # Scales all scraper delays by this multiplier. 1.0 = default safe behaviour.
+  # Try 0.4 to find the minimum safe delay. 0.25 is the fastest but riskiest.
+  # Use 2.0 if LinkedIn starts throttling or blocking your session.
+  delay_multiplier: 0.5
+
   # Fast pre-filter applied to job cards BEFORE fetching detail pages.
   # This avoids spending time and money on jobs that are obviously wrong.
   # No LLM is used here — decisions are pure regex / string matching.

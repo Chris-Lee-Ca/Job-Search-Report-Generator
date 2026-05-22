@@ -175,6 +175,10 @@ class LinkedInProvider(JobProvider):
         self.debug_dir = debug_dir
         self.browser_data_dir = browser_data_dir
         self.linkedin_cfg = linkedin_cfg
+        self._delay_mult = linkedin_cfg.get("delay_multiplier", 1.0)
+
+    def _sleep(self, lo: float, hi: float) -> None:
+        time.sleep(random.uniform(lo * self._delay_mult, hi * self._delay_mult))
 
     # ── Public interface ──────────────────────────────────────────────────────
 
@@ -214,7 +218,7 @@ class LinkedInProvider(JobProvider):
             print("Checking session...")
             check = context.new_page()
             self._goto(check, "https://www.linkedin.com/feed/")
-            time.sleep(random.uniform(3, 7))
+            self._sleep(3, 7)
             if any(x in check.url for x in ("login", "authwall", "checkpoint")):
                 print("Session expired. Run `python main.py fetch --setup` to log in again.")
                 check.close()
@@ -352,7 +356,7 @@ class LinkedInProvider(JobProvider):
         except Exception as e:
             err = str(e)
             if "ERR_HTTP_RESPONSE_CODE_FAILURE" in err or "ERR_TOO_MANY_REDIRECTS" in err:
-                time.sleep(random.uniform(8, 20))
+                self._sleep(8, 20)
                 return False
             raise
 
@@ -383,7 +387,7 @@ class LinkedInProvider(JobProvider):
                         fetched_ok += 1
                 except Exception as e:
                     print(f"ERROR fetching {job_id}: {e}")
-                time.sleep(random.uniform(10, 25))
+                self._sleep(10, 25) #TODO: may think of reduce this in the future
 
             detail_page.close()
             context.close()
@@ -458,7 +462,7 @@ class LinkedInProvider(JobProvider):
                 if job_id.isdigit() and job_id not in collected:
                     collected[job_id] = _read_preview()
 
-                time.sleep(random.uniform(2, 6))
+                self._sleep(2, 6)
 
             if not found_new:
                 break
@@ -467,7 +471,7 @@ class LinkedInProvider(JobProvider):
                 page.evaluate(_SCROLL_LIST_JS)
             except Exception:
                 break
-            time.sleep(random.uniform(1.5, 4))
+            self._sleep(1.5, 4)
 
         return collected
 
@@ -485,7 +489,7 @@ class LinkedInProvider(JobProvider):
                 timeout=timeout,
             )
         except Exception:
-            time.sleep(random.uniform(4, 9))
+            self._sleep(4, 9)
 
     def _first_card_key(self, page) -> Optional[str]:
         cards = page.query_selector_all(
@@ -499,7 +503,7 @@ class LinkedInProvider(JobProvider):
         remote_only = url_entry.get("remote_only", False)
 
         self._goto(page, search_url, timeout=30000)
-        time.sleep(random.uniform(5, 12))
+        self._sleep(5, 12)
 
         if any(x in page.url for x in ("login", "authwall", "checkpoint")):
             print("  Redirected to login — session may have expired.")
@@ -576,10 +580,10 @@ class LinkedInProvider(JobProvider):
 
             first_key = self._first_card_key(page)
             page.keyboard.press("Escape")
-            time.sleep(random.uniform(2, 5))
+            self._sleep(2, 5)
             page.evaluate("el => el.click()", next_btn)
             self._wait_for_cards_change(page, first_key)
-            time.sleep(random.uniform(5, 14))
+            self._sleep(5, 14)
 
     def _fetch_job_detail(self, page, job: dict, save_html: bool = False):
         from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -603,7 +607,7 @@ class LinkedInProvider(JobProvider):
             )
             if btn:
                 btn.click(force=True)
-                time.sleep(random.uniform(1, 3))
+                self._sleep(1, 3)
         except Exception:
             pass
 
