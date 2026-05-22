@@ -36,6 +36,25 @@ def build_provider(config: dict):
     raise ValueError(f"Unknown provider '{provider_name}'. Supported: claude, gemini, ollama")
 
 
+_SKIP_WORDS = frozenset({"with", "and", "for", "the", "using", "tools", "only", "some", "via", "to"})
+
+
+def _filter_false_missing(unmatched: list, resume: str) -> list:
+    """Remove skills from the 'missing' list that actually appear in the resume.
+    Guards against model hallucination: e.g. listing Python as missing when it's in the resume.
+    """
+    resume_lower = resume.lower()
+    confirmed = []
+    for skill in unmatched:
+        # Extract meaningful words (length > 2, skip filler words)
+        words = [w.strip("().,/") for w in skill.lower().split()]
+        core = [w for w in words if len(w) > 2 and w not in _SKIP_WORDS]
+        # Only keep as 'missing' if NONE of the core words appear in the resume
+        if core and not any(w in resume_lower for w in core):
+            confirmed.append(skill)
+    return confirmed
+
+
 def _effective_score(score: int, work_mode: str, bonus: int) -> int:
     if work_mode == "Remote":
         return min(100, score + bonus)
@@ -62,10 +81,18 @@ def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
         blocks.append(" · ".join(meta_parts))
 
     if analysis.matched_required_skills:
-        blocks.append(f"✅ **Required:** {', '.join(analysis.matched_required_skills)}")
+        bullets = "\n".join(f"  - {s}" for s in analysis.matched_required_skills)
+        blocks.append(f"✅ **Required (have):**\n{bullets}")
+    unmatched = getattr(analysis, "unmatched_required_skills", [])
+    if unmatched:
+        bullets = "\n".join(f"  - {s}" for s in unmatched)
+        blocks.append(f"❌ **Required (missing):**\n{bullets}")
     if analysis.matched_nice_skills:
-        blocks.append(f"⭐ **Preferred:** {', '.join(analysis.matched_nice_skills)}")
+        bullets = "\n".join(f"  - {s}" for s in analysis.matched_nice_skills)
+        blocks.append(f"⭐ **Preferred:**\n{bullets}")
 
+    if getattr(analysis, "tech_notes", None):
+        blocks.append(f"🔧 **Tech:** {analysis.tech_notes}")
     if analysis.seniority_required and analysis.seniority_required != "Unknown":
         blocks.append(f"📊 {analysis.seniority_required}")
     if analysis.industry and analysis.industry != "Unknown":
@@ -76,7 +103,7 @@ def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
     return "\n\n".join(blocks)
 
 
-def run_score_filter(raw_jobs_path: str | None = None):
+def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None = None):
     import json
 
     config = load_config()
@@ -148,6 +175,11 @@ def run_score_filter(raw_jobs_path: str | None = None):
             errors += 1
             continue
 
+        # Guard against model hallucination: remove "missing" skills that are in the resume
+        analysis.unmatched_required_skills = _filter_false_missing(
+            getattr(analysis, "unmatched_required_skills", []), resume
+        )
+
         if job_id and job_id not in seen:
             seen[job_id] = {
                 "first_seen": today,
@@ -158,6 +190,13 @@ def run_score_filter(raw_jobs_path: str | None = None):
             }
 
         previously_applied = seen.get(job_id, {}).get("applied", False)
+
+        # Code-level enforcement: filter if min_years_required >= 5 regardless of LLM decision.
+        # LLMs often fail to apply this rule consistently, so we enforce it here.
+        min_yrs = getattr(analysis, "min_years_required", 0)
+        if not analysis.should_filter and min_yrs >= 5:
+            analysis.should_filter = True
+            analysis.filter_reason = f"Requires {min_yrs}+ years experience (code-enforced)"
 
         if analysis.should_filter:
             print(f"FILTERED ({analysis.filter_reason})")
@@ -181,7 +220,7 @@ def run_score_filter(raw_jobs_path: str | None = None):
     ))
 
     OUTPUT_DIR.mkdir(exist_ok=True)
-    out_path = OUTPUT_DIR / f"daily_jobs_{today}.md"
+    out_path = Path(output_path) if output_path else OUTPUT_DIR / f"daily_jobs_{today}.md"
 
     lines = [
         f"# Job Report — {display_date}",

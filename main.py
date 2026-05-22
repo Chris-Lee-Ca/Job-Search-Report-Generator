@@ -58,10 +58,11 @@ def fetch(setup: bool, schedule: str | None, from_ids: str | None):
 @cli.command()
 @click.argument("raw_path", required=False, default=None,
                 metavar="[RAW_PATH]")
-def score(raw_path: str | None):
+@click.option("--output", default=None, metavar="PATH", help="Override output file path (avoids overwriting existing daily files).")
+def score(raw_path: str | None, output: str | None):
     """Score and filter jobs from a raw JSON file (defaults to today's file)."""
     from job_search.pipeline.score import run_score_filter
-    run_score_filter(raw_path)
+    run_score_filter(raw_path, output_path=output)
 
 
 @cli.command()

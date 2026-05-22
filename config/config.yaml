@@ -25,7 +25,7 @@ search_urls:
 #   ollama pull qwen2.5:7b
 llm:
   provider: ollama
-  model: qwen2.5:7b
+  model: qwen2.5:14b
   base_url: http://localhost:11434/v1
   # num_threads: 4   # leave ~half the M1 cores free; remove to use all cores
 

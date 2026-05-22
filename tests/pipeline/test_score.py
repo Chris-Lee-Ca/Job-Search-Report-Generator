@@ -13,7 +13,8 @@ def _analysis(**overrides) -> JobAnalysis:
     defaults = dict(
         should_filter=False, filter_reason=None,
         score=70,
-        matched_required_skills=["Python"], matched_nice_skills=["Docker"],
+        matched_required_skills=["Python"], unmatched_required_skills=[], matched_nice_skills=["Docker"],
+        min_years_required=0,
         seniority_required="Mid-level (2-4 yrs)",
         work_mode="Remote", industry="Tech",
     )

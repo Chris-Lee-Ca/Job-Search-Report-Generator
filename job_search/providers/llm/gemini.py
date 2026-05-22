@@ -115,8 +115,11 @@ class GeminiProvider(LLMProvider):
             filter_reason=data.get("filter_reason"),
             score=int(data.get("score") or 0),
             matched_required_skills=data.get("matched_required_skills") or [],
+            unmatched_required_skills=data.get("unmatched_required_skills") or [],
             matched_nice_skills=data.get("matched_nice_skills") or [],
+            min_years_required=int(data.get("min_years_required") or 0),
             seniority_required=data.get("seniority_required") or "Unknown",
             work_mode=data.get("work_mode") or "Unknown",
             industry=data.get("industry") or "Unknown",
+            tech_notes=data.get("tech_notes") or None,
         )
