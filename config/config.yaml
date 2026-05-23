@@ -24,12 +24,17 @@ search_urls:
 #   brew install ollama
 #   ollama pull qwen2.5:7b
 llm:
-  provider: ollama
-  model: qwen2.5:14b
-  base_url: http://localhost:11434/v1
-  # num_threads: 4   # leave ~half the M1 cores free; remove to use all cores
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key_env: GEMINI_API_KEY
 
-# Claude fallback (comment out ollama block above and uncomment this):
+# Ollama (free local inference — no API key needed):
+# llm:
+#   provider: ollama
+#   model: qwen2.5:14b
+#   base_url: http://localhost:11434/v1
+
+# Claude fallback:
 # llm:
 #   provider: claude
 #   model: claude-haiku-4-5-20251001

@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import List
 
 from google import genai
 from google.genai import types
 
 from .base import JobAnalysis, LLMProvider
+
+_RETRY_STATUSES = {429, 500, 503}
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = (5, 15, 30)  # seconds between attempts
 
 SYSTEM_PROMPT = """You are a job-fit analyst. Given a candidate's resume and a job posting, you:
 1. Decide whether to hard-filter the job.
@@ -34,20 +39,24 @@ USER_PROMPT_TEMPLATE = """## Candidate Resume
 
 Score the candidate using these tiers in order of importance:
 
-**Tier 1 — Mandatory Requirements + Seniority (60 pts)**
-This is the most critical tier. Evaluate:
-- Does the candidate meet the hard skill requirements (must-have technologies, languages, tools)?
-- Does the candidate's seniority / years of experience match what is explicitly required?
-- A seniority mismatch (e.g. job requires 5+ years, candidate has 3) = significant deduction.
-- A missing mandatory skill = significant deduction.
-- If the job is primarily seeking a specific tech stack the candidate does not have (e.g. Java specialist, .NET specialist), cap the total score at 15.
+**Tier 1 — Mandatory Requirements + Seniority (up to 60 pts)**
+How well does the candidate satisfy the hard requirements: required skills, technologies, and seniority level?
+If the job is primarily seeking a specific tech stack the candidate does not have (e.g. Java specialist, .NET specialist), cap the total score at 15.
 
-**Tier 2 — Preferred / Nice-to-Have Requirements (25 pts)**
-- How many of the preferred or nice-to-have skills / experiences does the candidate have?
+**Tier 2 — Preferred / Nice-to-Have Requirements (up to 25 pts)**
+How many of the preferred or nice-to-have skills does the candidate have?
 
-**Tier 3 — Title Relevance (15 pts)**
-- How closely does the job title match the candidate's experience pattern and career trajectory?
-- This is the least important tier.
+**Tier 3 — Title Relevance (up to 15 pts)**
+How closely does the job title match the candidate's experience pattern and career trajectory?
+
+**Score range guide:**
+- **90–100**: Exceptional match — candidate satisfies nearly all requirements and seniority perfectly.
+- **75–89**: Good match — meets most requirements with only minor gaps.
+- **60–74**: Partial match — meets the core but has notable gaps or a seniority mismatch.
+- **40–59**: Weak match — missing several requirements or a significant experience gap.
+- **< 40**: Poor match — wrong stack or missing most requirements.
+
+**Self-check before finalising:** Does your score fall within the correct band above? If a generic or vague posting scored above 85, or a well-matched posting scored below 60, re-evaluate.
 
 ---
 
@@ -77,7 +86,7 @@ class GeminiProvider(LLMProvider):
         self._config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             response_mime_type="application/json",
-            max_output_tokens=800,
+            max_output_tokens=4096,
         )
 
     def analyze_job(
@@ -95,11 +104,30 @@ class GeminiProvider(LLMProvider):
             filter_criteria=criteria_text,
         )
 
-        response = self._client.models.generate_content(
-            model=self._model,
-            contents=prompt,
-            config=self._config,
-        )
+        last_exc: Exception | None = None
+        for attempt, backoff in enumerate((*_RETRY_BACKOFF, None), 1):
+            try:
+                response = self._client.models.generate_content(
+                    model=self._model,
+                    contents=prompt,
+                    config=self._config,
+                )
+                break
+            except Exception as e:
+                last_exc = e
+                code = getattr(e, "code", None) or getattr(e, "status_code", None)
+                # Also catch by message for libraries that don't expose a numeric code
+                msg = str(e)
+                is_transient = (
+                    code in _RETRY_STATUSES
+                    or any(str(s) in msg for s in _RETRY_STATUSES)
+                )
+                if not is_transient or attempt > _MAX_RETRIES:
+                    raise
+                print(f"[retry {attempt}/{_MAX_RETRIES} in {backoff}s]", end=" ", flush=True)
+                time.sleep(backoff)
+        else:
+            raise last_exc  # type: ignore[misc]
 
         raw = response.text.strip()
 
