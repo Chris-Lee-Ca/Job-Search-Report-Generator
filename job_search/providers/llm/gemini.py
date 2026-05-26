@@ -35,12 +35,29 @@ USER_PROMPT_TEMPLATE = """## Candidate Resume
 
 ---
 
-## Scoring Rubric (total 100 pts)
+## STEP 1 — Hard Filter Check
+
+Apply each criterion above. If ANY criterion matches, set should_filter=true.
+
+**Experience filter rule (CRITICAL):**
+- Look for phrases like "5+ years", "minimum 5 years", "at least 5 years required" in the Requirements or Qualifications section.
+- ONLY filter if the job explicitly states a minimum year count as a hard requirement. Do NOT infer years from the job title, seniority level, or typical industry norms.
+- If the job description does not state a specific number of years, do NOT filter on experience.
+- `filter_reason` must describe only what the JOB states (e.g. "Requires 8+ years of experience") — never reference the candidate's background.
+
+**Location filter rule:**
+- Only applies to onsite/hybrid roles. Check the job's office location — NOT the candidate's location.
+- If the job is remote, this rule does not apply regardless of the city listed.
+
+---
+
+## STEP 2 — Scoring (only if not filtered)
 
 Score the candidate using these tiers in order of importance:
 
 **Tier 1 — Mandatory Requirements + Seniority (up to 60 pts)**
 How well does the candidate satisfy the hard requirements: required skills, technologies, and seniority level?
+The candidate's total years of professional experience is stated in their resume Summary section — read it from there; do not recalculate from work history dates.
 If the job is primarily seeking a specific tech stack the candidate does not have (e.g. Java specialist, .NET specialist), cap the total score at 15.
 
 **Tier 2 — Preferred / Nice-to-Have Requirements (up to 25 pts)**
@@ -60,16 +77,25 @@ How closely does the job title match the candidate's experience pattern and care
 
 ---
 
+## STEP 3 — Extract Fields
+
+**min_years_required**: The minimum years the job EXPLICITLY requires, as a plain integer. Read the exact phrase from Requirements/Qualifications (e.g. "5+ years" → 5, "3–5 years" → 3). Set to 0 if no specific number is stated — never guess or infer from seniority.
+
+---
+
 Respond ONLY with JSON in exactly this shape:
 {{
   "should_filter": <true|false>,
-  "filter_reason": "<reason if filtered, else null>",
+  "filter_reason": "<reason if filtered — state only what the job requires, not the candidate's profile; null if not filtered>",
   "score": <0-100>,
   "matched_required_skills": ["skill1"],
-  "matched_nice_skills": ["skill2"],
+  "unmatched_required_skills": ["skill2"],
+  "matched_nice_skills": ["skill3"],
+  "min_years_required": <integer — explicit job requirement only; 0 if not stated>,
   "seniority_required": "<e.g. Mid-level (2–4 yrs)>",
   "work_mode": "<Remote|Hybrid|Onsite|Unknown>",
-  "industry": "<industry name>"
+  "industry": "<industry name>",
+  "tech_notes": "<one sentence about the tech stack focus>"
 }}"""
 
 

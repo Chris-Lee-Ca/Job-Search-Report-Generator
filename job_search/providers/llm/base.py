@@ -29,17 +29,19 @@ JOB_USER_TEMPLATE = """## Job Title
 Read each rule below and check it against the job description. If ANY rule matches, set should_filter=true and stop — do not score.
 
 **Rule 1 — Experience requirement:**
-Does the job description list "5+ years", "6+ years", "7+ years" or more as a required qualification?
-Look in sections titled: Requirements, Qualifications, What You'll Bring, Must Have, You Have, About You, or the main body.
-If yes → should_filter=true, filter_reason="Requires 5+ years experience".
-Exception: if "5+ years" appears ONLY under "Nice to Have", "Preferred", "Bonus", or "An asset" — do NOT filter.
+Does the job description EXPLICITLY state a minimum year count in Requirements, Qualifications, What You'll Bring, Must Have, You Have, About You, or the main body? (e.g. "6+ years", "minimum 6 years", "at least 7 years required")
+Do NOT infer years from the job title, seniority level, or typical industry norms — only use what is literally written.
+If the explicit number is 6 or more → should_filter=true, filter_reason="Requires X+ years experience" (state only what the job says, never the candidate's profile).
+Exception: if "6+ years" appears ONLY under "Nice to Have", "Preferred", "Bonus", or "An asset" — do NOT filter.
 
 **Rule 2 — Job type:**
 Is this an internship, co-op, student position, or freelance? → should_filter=true
 
 **Rule 3 — Location (onsite/hybrid only):**
-Is this an onsite or hybrid role? If yes, is it located OUTSIDE Metro Vancouver (Vancouver, Burnaby, Richmond, Surrey, Coquitlam, New Westminster, North Vancouver, West Vancouver, Delta, Langley)?
-If onsite/hybrid AND outside those cities → should_filter=true.
+Is this an onsite or hybrid role? If yes, look at the job's listed office location (NOT the candidate's location).
+Is the job's office located OUTSIDE Metro Vancouver (Vancouver, Burnaby, Richmond, Surrey, Coquitlam, New Westminster, North Vancouver, West Vancouver, Delta, Langley)?
+If the job is onsite/hybrid AND the office is outside those cities → should_filter=true.
+If the job is onsite/hybrid AND the office IS in one of those cities → do NOT filter on location.
 NOTE: Remote roles from any Canadian company always PASS this check, regardless of city listed.
 
 **Rule 4 — Company location (remote only):**
@@ -48,6 +50,8 @@ Is this a remote role where the company is based entirely outside Canada? → sh
 ---
 
 ## STEP 2 — Scoring (only if not filtered)
+
+The candidate's total years of professional experience is stated in their resume Summary section — read it from there; do not recalculate from work history dates.
 
 Score the candidate's fit 0–100. Be strict — most jobs should score 55–80. Reserve 90+ for near-perfect matches only.
 
@@ -78,7 +82,7 @@ Score the candidate's fit 0–100. Be strict — most jobs should score 55–80.
 
 ## STEP 3 — Extract Fields
 
-**min_years_required**: The minimum years of professional experience the job requires as a plain integer. Look in Requirements, Qualifications, What You'll Bring, Must Have sections. Use the lowest number if a range is given (e.g. "3–5 years" → 3). Use 0 if no year requirement is stated.
+**min_years_required**: The minimum years of professional experience the job EXPLICITLY states as a plain integer. Read the exact phrase from Requirements/Qualifications (e.g. "5+ years" → 5, "3–5 years" → 3). Set to 0 if no specific number is stated — never guess or infer from the job title or seniority level.
 
 **matched_required_skills**: Skills listed as required in the job that the candidate HAS. Be thorough — aim for 5–10 items.
 

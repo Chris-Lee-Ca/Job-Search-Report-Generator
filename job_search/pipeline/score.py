@@ -55,6 +55,21 @@ def _filter_false_missing(unmatched: list, resume: str) -> list:
     return confirmed
 
 
+def _categorize_filter_reason(reason: str) -> tuple[str, str | None]:
+    """Return (category_label, inline_note) to group filtered jobs."""
+    match = re.search(r"[Rr]equires?\s*(\d+)\+?\s*years?", reason)
+    if match:
+        return "Too much experience required", f"≥{match.group(1)} yrs"
+    lower = reason.lower()
+    if "outside" in lower and ("metro" in lower or "vancouver" in lower):
+        return "Outside Metro Vancouver", None
+    if any(w in lower for w in ("intern", "co-op", "coop", "student", "freelance")):
+        return "Internship / co-op / student / freelance", None
+    if "outside canada" in lower or "non-canadian" in lower:
+        return "Company outside Canada (remote)", None
+    return reason, None
+
+
 def _effective_score(score: int, work_mode: str, bonus: int) -> int:
     if work_mode == "Remote":
         return min(100, score + bonus)
@@ -194,7 +209,7 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
         # Code-level enforcement: filter if min_years_required >= 5 regardless of LLM decision.
         # LLMs often fail to apply this rule consistently, so we enforce it here.
         min_yrs = getattr(analysis, "min_years_required", 0)
-        if not analysis.should_filter and min_yrs >= 5:
+        if not analysis.should_filter and min_yrs >= 6:
             analysis.should_filter = True
             analysis.filter_reason = f"Requires {min_yrs}+ years experience (code-enforced)"
 
@@ -203,6 +218,7 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
             filtered_jobs.append({
                 "company": job.get("company", ""),
                 "title": job.get("title", ""),
+                "url": job.get("url", ""),
                 "reason": analysis.filter_reason or "filtered",
             })
         else:
@@ -234,6 +250,24 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
     for job, analysis, previously_applied in scored_jobs:
         lines.append(_format_job_section(job, analysis, previously_applied))
         lines.append("\n---\n")
+
+    if filtered_jobs:
+        filtered_by_cat: dict[str, list[tuple[str, str, str | None]]] = {}
+        for fj in filtered_jobs:
+            cat, note = _categorize_filter_reason(fj["reason"])
+            entry = (fj.get("company", ""), fj.get("title", ""), fj.get("url", ""), note)
+            filtered_by_cat.setdefault(cat, []).append(entry)
+
+        lines.append("## Filtered Out\n")
+        for cat, entries in filtered_by_cat.items():
+            lines.append(f"### {cat} ({len(entries)})\n")
+            for company, title, url, note in entries:
+                name = f"{company} — {title}" if company else title
+                if note:
+                    name += f" *({note})*"
+                label = f"[{name}]({url})" if url else name
+                lines.append(f"- {label}")
+            lines.append("")
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
