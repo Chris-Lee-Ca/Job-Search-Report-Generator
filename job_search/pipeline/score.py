@@ -122,8 +122,12 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
     import json
 
     config = load_config()
-    filter_criteria = config.get("hard_filter_criteria", [])
-    remote_bonus = config.get("scoring", {}).get("remote_score_bonus", 5)
+    scoring = config.get("scoring", {})
+    remote_bonus = scoring.get("remote_score_bonus", 5)
+    max_years = scoring.get("max_years", 6)
+    filter_criteria = [
+        c.format(max_years=max_years) for c in config.get("hard_filter_criteria", [])
+    ]
 
     if raw_jobs_path is None:
         today = datetime.now().strftime("%Y-%m-%d")
@@ -164,7 +168,7 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
 
     scored_jobs = []
     filtered_jobs = []
-    errors = 0
+    error_jobs = []
     skips = 0
 
     print(f"Analysing {len(jobs)} jobs (provider={config['llm']['provider']}, model={config['llm']['model']})...")
@@ -187,7 +191,12 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
             )
         except Exception as e:
             print(f"ERROR: {e}")
-            errors += 1
+            error_jobs.append({
+                "company": job.get("company", ""),
+                "title": job.get("title", ""),
+                "url": job.get("url", ""),
+                "error": str(e),
+            })
             continue
 
         # Guard against model hallucination: remove "missing" skills that are in the resume
@@ -206,10 +215,10 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
 
         previously_applied = seen.get(job_id, {}).get("applied", False)
 
-        # Code-level enforcement: filter if min_years_required >= 5 regardless of LLM decision.
+        # Code-level enforcement: filter if min_years_required >= max_years regardless of LLM decision.
         # LLMs often fail to apply this rule consistently, so we enforce it here.
         min_yrs = getattr(analysis, "min_years_required", 0)
-        if not analysis.should_filter and min_yrs >= 6:
+        if not analysis.should_filter and min_yrs >= max_years:
             analysis.should_filter = True
             analysis.filter_reason = f"Requires {min_yrs}+ years experience (code-enforced)"
 
@@ -251,6 +260,23 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
         lines.append(_format_job_section(job, analysis, previously_applied))
         lines.append("\n---\n")
 
+    if error_jobs:
+        lines.append("## Errors — manual review needed\n")
+        lines.append(
+            "> These jobs could not be analysed by the AI (API error, malformed response, etc.).\n"
+            "> Review each link manually and decide whether to apply.\n"
+        )
+        for ej in error_jobs:
+            company = ej.get("company", "")
+            title = ej.get("title", "")
+            url = ej.get("url", "")
+            err = ej.get("error", "unknown error")
+            name = f"{company} — {title}" if company else title
+            label = f"[{name}]({url})" if url else name
+            lines.append(f"- {label}  \n  ⚠️ `{err}`")
+        lines.append("")
+        lines.append("---\n")
+
     if filtered_jobs:
         filtered_by_cat: dict[str, list[tuple[str, str, str | None]]] = {}
         for fj in filtered_jobs:
@@ -273,7 +299,7 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
         f.write("\n".join(lines))
 
     print(f"\nReport → {out_path}")
-    print(f"  {len(scored_jobs)} scored | {len(filtered_jobs)} AI-filtered | {errors} errors | {skips} skipped")
+    print(f"  {len(scored_jobs)} scored | {len(filtered_jobs)} AI-filtered | {len(error_jobs)} errors | {skips} skipped")
     if hasattr(provider, "_cache_hits"):
         total = provider._cache_hits + provider._cache_misses
         print(f"  Cache: {provider._cache_hits}/{total} hits ({provider._cache_misses} misses)")

@@ -115,3 +115,80 @@ def test_build_provider_unknown_raises():
     from job_search.pipeline.score import build_provider
     with pytest.raises(ValueError, match="Unknown provider"):
         build_provider({"llm": {"provider": "badprovider", "model": "x", "api_key_env": "X"}})
+
+
+# ── max_years config interpolation ───────────────────────────────────────────
+
+def _make_config(max_years: int) -> dict:
+    return {
+        "llm": {"provider": "claude", "model": "claude-haiku-4-5-20251001", "api_key_env": "ANTHROPIC_API_KEY"},
+        "hard_filter_criteria": [
+            "Exclude internships, co-ops, or student positions",
+            "Exclude roles that explicitly require {max_years} or more years of experience as a hard requirement (not just preferred)",
+        ],
+        "scoring": {"remote_score_bonus": 5, "max_years": max_years},
+    }
+
+
+def test_max_years_interpolated_into_filter_criteria(tmp_path, monkeypatch):
+    """scoring.max_years must be substituted into {max_years} in hard_filter_criteria."""
+    import json
+
+    cfg = _make_config(max_years=7)
+    raw = [_sample_job()]
+    raw_file = tmp_path / "raw_jobs_2026-01-01.json"
+    raw_file.write_text(json.dumps(raw))
+
+    captured_criteria: list[list[str]] = []
+
+    def fake_analyze(self, *, resume, job_title, job_description, filter_criteria):
+        captured_criteria.append(filter_criteria)
+        return _analysis()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    with (
+        patch("job_search.pipeline.score.load_config", return_value=cfg),
+        patch("job_search.pipeline.score.load_resume", return_value="resume text"),
+        patch("job_search.pipeline.score.load_seen_jobs", return_value={}),
+        patch("job_search.pipeline.score.save_seen_jobs"),
+        patch("job_search.providers.llm.claude.ClaudeProvider.analyze_job", fake_analyze),
+    ):
+        from job_search.pipeline.score import run_score_filter
+        run_score_filter(raw_jobs_path=str(raw_file), output_path=str(tmp_path / "out.md"))
+
+    assert captured_criteria, "analyze_job was never called"
+    criteria_text = " ".join(captured_criteria[0])
+    assert "7 or more years" in criteria_text, (
+        f"Expected '7 or more years' in filter_criteria but got: {criteria_text!r}"
+    )
+    assert "{max_years}" not in criteria_text, "Placeholder was not substituted"
+
+
+def test_default_max_years_is_6(tmp_path, monkeypatch):
+    """When scoring.max_years is 6 (the default), the criteria string must say '6 or more years'."""
+    import json
+
+    cfg = _make_config(max_years=6)
+    raw = [_sample_job()]
+    raw_file = tmp_path / "raw_jobs_2026-01-01.json"
+    raw_file.write_text(json.dumps(raw))
+
+    captured_criteria: list[list[str]] = []
+
+    def fake_analyze(self, *, resume, job_title, job_description, filter_criteria):
+        captured_criteria.append(filter_criteria)
+        return _analysis()
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    with (
+        patch("job_search.pipeline.score.load_config", return_value=cfg),
+        patch("job_search.pipeline.score.load_resume", return_value="resume text"),
+        patch("job_search.pipeline.score.load_seen_jobs", return_value={}),
+        patch("job_search.pipeline.score.save_seen_jobs"),
+        patch("job_search.providers.llm.claude.ClaudeProvider.analyze_job", fake_analyze),
+    ):
+        from job_search.pipeline.score import run_score_filter
+        run_score_filter(raw_jobs_path=str(raw_file), output_path=str(tmp_path / "out.md"))
+
+    criteria_text = " ".join(captured_criteria[0])
+    assert "6 or more years" in criteria_text
