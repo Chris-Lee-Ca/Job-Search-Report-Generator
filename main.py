@@ -11,6 +11,7 @@ Commands:
     python main.py score output/raw/raw_jobs_2026-05-20.json
     python main.py report output/daily_jobs_2026-05-20.md
     python main.py report output/daily_jobs_2026-05-20.md --append
+    python main.py retry-errors output/daily_jobs_2026-05-20.md
 """
 
 from __future__ import annotations
@@ -76,6 +77,15 @@ def report(daily_file: str, append: bool):
     except FileNotFoundError as e:
         click.echo(str(e), err=True)
         sys.exit(1)
+
+
+@cli.command("retry-errors")
+@click.argument("daily_file")
+def retry_errors(daily_file: str):
+    """Re-score only the error jobs from a daily file. Stops on the first new error
+    and saves the raw API response to output/debug/ for inspection."""
+    from job_search.pipeline.retry_errors import run_retry_errors
+    run_retry_errors(daily_file)
 
 
 if __name__ == "__main__":

@@ -109,10 +109,12 @@ class GeminiProvider(LLMProvider):
             )
         self._client = genai.Client(api_key=api_key)
         self._model = model
+        self._last_raw: str | None = None  # last raw API response; set before json.loads so it's readable on parse failure
         self._config = types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
             response_mime_type="application/json",
-            max_output_tokens=4096,
+            max_output_tokens=8192,
+            thinking_config=types.ThinkingConfig(thinking_budget=1024),
         )
 
     def analyze_job(
@@ -156,6 +158,7 @@ class GeminiProvider(LLMProvider):
             raise last_exc  # type: ignore[misc]
 
         raw = response.text.strip()
+        self._last_raw = raw  # stored before parse so it's available if json.loads raises
 
         if raw.startswith("```"):
             raw = raw.split("```")[1]
