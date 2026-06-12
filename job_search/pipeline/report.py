@@ -135,5 +135,8 @@ def run_report(daily_file: str, append: bool = False):
 
     generate_report(applied_jobs, date, append, out_path)
 
+    total_applied = sum(1 for v in seen.values() if v.get("applied"))
+
     print(f"\nReport saved → {out_path}")
     print("seen_jobs.json updated.")
+    print(f"\nTotal jobs applied since day 1: {total_applied}")

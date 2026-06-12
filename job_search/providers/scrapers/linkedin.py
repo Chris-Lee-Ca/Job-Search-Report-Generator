@@ -568,8 +568,9 @@ class LinkedInProvider(JobProvider):
             if len(preview) == 0 and page_num == 1:
                 print(f"  0 jobs found on page 1. Check output/debug/debug_{label}_p1.html.")
 
-            if len(preview) > 0 and len(skipped) / len(preview) >= 0.70:
-                print(f"  ≥70% filtered ({len(skipped)}/{len(preview)}) — stopping early.")
+            # require at least 5 pages before stopping early — avoids quitting on a bad first page
+            if len(preview) > 0 and len(skipped) / len(preview) >= 0.80 and page_num >= 5:
+                print(f"  ≥80% filtered ({len(skipped)}/{len(preview)}) — stopping early.")
                 break
 
             next_btn = page.query_selector(

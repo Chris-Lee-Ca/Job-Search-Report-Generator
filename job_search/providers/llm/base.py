@@ -84,11 +84,18 @@ Score the candidate's fit 0–100. Be strict — most jobs should score 55–80.
 
 **min_years_required**: The minimum years of professional experience the job EXPLICITLY states as a plain integer. Read the exact phrase from Requirements/Qualifications (e.g. "5+ years" → 5, "3–5 years" → 3). Set to 0 if no specific number is stated — never guess or infer from the job title or seniority level.
 
+**seniority_required**: State the seniority level (e.g. "Junior", "Mid-level", "Senior", "Staff/Principal").
+- If the job explicitly states a year range → include it exactly: "Senior (5+ yrs)"
+- If NO year range is explicitly stated — you are only inferring from the title or level — append "(est.)" to make it clear this is an estimate: "Senior (est. ~5 yrs)" or just "Senior (est.)" if you can't even guess.
+- NEVER write a year range without "(est.)" unless the job description literally states that number.
+
 **matched_required_skills**: Skills listed as required in the job that the candidate HAS. Be thorough — aim for 5–10 items.
 
 **unmatched_required_skills**: Skills listed as required in the job that the candidate DOES NOT have. List only the gaps.
 
 **matched_nice_skills**: Preferred/nice-to-have skills from the job that the candidate has.
+
+**salary_range**: Copy the salary/compensation range EXACTLY as written in the job description (e.g. "$90,000–$120,000 CAD", "£50k–£70k", "$70–$90/hr"). Set to null if no salary or compensation range is stated anywhere in the posting — do NOT estimate or infer.
 
 **tech_notes**: One sentence on the tech stack focus. Examples:
 - "Primarily a TypeScript/React frontend role with Node.js backend."
@@ -107,7 +114,8 @@ Respond ONLY with JSON in exactly this shape:
   "unmatched_required_skills": ["skill3"],
   "matched_nice_skills": ["skill1", "skill2"],
   "min_years_required": <integer — the minimum years of experience explicitly required; 0 if not specified>,
-  "seniority_required": "<e.g. Mid-level (2–4 yrs)>",
+  "seniority_required": "<e.g. 'Senior (5+ yrs)' if stated, or 'Senior (est. ~5 yrs)' if guessed from title>",
+  "salary_range": "<exact salary range from the posting, or null>",
   "work_mode": "<Remote|Hybrid|Onsite|Unknown>",
   "industry": "<industry name>",
   "tech_notes": "<one sentence about the tech stack>"
@@ -132,6 +140,7 @@ class JobAnalysis:
     seniority_required: str    # what the job requires, e.g. "mid (2–4 yrs)"
     work_mode: str             # Remote | Hybrid | Onsite | Unknown
     industry: str
+    salary_range: Optional[str] = None   # exact text from posting, null if not stated
     tech_notes: Optional[str] = None
 
 

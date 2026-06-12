@@ -81,6 +81,8 @@ How closely does the job title match the candidate's experience pattern and care
 
 **min_years_required**: The minimum years the job EXPLICITLY requires, as a plain integer. Read the exact phrase from Requirements/Qualifications (e.g. "5+ years" → 5, "3–5 years" → 3). Set to 0 if no specific number is stated — never guess or infer from seniority.
 
+**salary_range**: Copy the salary/compensation range EXACTLY as written in the job description (e.g. "$90,000–$120,000 CAD", "£50k–£70k", "$70–$90/hr"). Set to null if no salary or compensation range is stated anywhere in the posting — do NOT estimate or infer.
+
 ---
 
 Respond ONLY with JSON in exactly this shape:
@@ -93,6 +95,7 @@ Respond ONLY with JSON in exactly this shape:
   "matched_nice_skills": ["skill3"],
   "min_years_required": <integer — explicit job requirement only; 0 if not stated>,
   "seniority_required": "<e.g. Mid-level (2–4 yrs)>",
+  "salary_range": "<exact salary range from the posting, or null>",
   "work_mode": "<Remote|Hybrid|Onsite|Unknown>",
   "industry": "<industry name>",
   "tech_notes": "<one sentence about the tech stack focus>"
@@ -178,5 +181,6 @@ class GeminiProvider(LLMProvider):
             seniority_required=data.get("seniority_required") or "Unknown",
             work_mode=data.get("work_mode") or "Unknown",
             industry=data.get("industry") or "Unknown",
+            salary_range=data.get("salary_range") or None,
             tech_notes=data.get("tech_notes") or None,
         )

@@ -80,5 +80,6 @@ class ClaudeProvider(LLMProvider):
             seniority_required=data.get("seniority_required") or "Unknown",
             work_mode=data.get("work_mode") or "Unknown",
             industry=data.get("industry") or "Unknown",
+            salary_range=data.get("salary_range") or None,
             tech_notes=data.get("tech_notes") or None,
         )

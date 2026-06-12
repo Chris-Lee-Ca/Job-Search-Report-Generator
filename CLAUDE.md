@@ -5,19 +5,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## AI Job Assistant
 
 This project includes a personal job assistant powered by Claude Code. When the user asks any question related to:
+
 - Job fit ("Is this job relevant to my background?")
 - Cover letters or application questions ("Why do you want to work at X?")
 - Interview prep ("How should I answer this question?")
 - Resume advice ("How should I describe this experience?")
 
 **Always do this first:**
+
 1. Read `config/resume.md` to understand the user's background, skills, and target roles.
 2. Read `config/qa_store.md` and check if a pre-saved answer exists for this exact question or company.
    - If a saved answer exists: return it **verbatim**, do not rewrite or improve it.
    - If no saved answer: generate a response grounded in the resume content.
 
+**Answer formatting rules:**
+
+- Never use em dashes (—) in generated answers.
+- Write like a normal person talking, not like an AI. Keep sentences short and straightforward. Avoid fancy phrasing, buzzwords, or anything that sounds polished or corporate.
+- Avoid filler phrases like "concrete problem with real stakes", "passionate about", "excited to", "drive impact", "deliver value". These sound like AI wrote them.
+
+**Salary questions:**
+When the user asks about salary expectations for a specific role (e.g. "what salary should I ask for at X?"):
+
+1. Check if the job listing already has a salary range — if so, use that as the anchor.
+2. If no salary is listed, use WebSearch to look up current salary data for that company and role title (Glassdoor, Levels.fyi, LinkedIn Salary, etc.).
+3. Factor in: job title and seniority level, years of experience required, company size and funding stage, and any live salary data found.
+4. Give a specific CAD (or USD if the role is US-based) range the user can actually quote, with a one-line explanation of why.
+
+- Do NOT guess without searching. Do NOT give a vague "it depends" answer.
+
 **Saving answers:**
 When the user says "save this answer", "remember this answer", or "remember this for [question]":
+
 - Append to `config/qa_store.md` using this exact format:
   ```
   ## Q: [question or topic]
@@ -40,6 +59,7 @@ Tests mirror the `job_search/` package structure under `tests/`:
 - **Integration tests** — live in `tests/integration/`. Require Playwright, live APIs, or test full pipeline flow. Marked `@pytest.mark.integration`.
 
 ### When to run what
+
 ```bash
 # Default — fast unit tests, run after every change
 pytest -m "not integration" -v
@@ -52,6 +72,7 @@ pytest -v
 ```
 
 ### Rules
+
 - Add a test for every bug fixed — name it after what broke.
 - Test pure logic functions; skip thin wrappers (`load_config`, `load_resume`).
 - Mock `build_provider`, `load_config`, and `load_resume` in pipeline integration tests.
@@ -67,13 +88,13 @@ pytest -v
    - Changed `job_search/pipeline/report.py` → `pytest tests/pipeline/test_report.py tests/integration/test_report_pipeline.py -v`
    - Changed `job_search/providers/scrapers/linkedin.py` → `pytest tests/providers/scrapers/test_linkedin.py tests/integration/test_scraper.py -v`
    - Single test → `pytest tests/providers/scrapers/test_linkedin.py::test_pre_filter_non_bc_city_blocked_without_remote -v`
-   Do not claim the fix is complete if tests fail.
+     Do not claim the fix is complete if tests fail.
 
 2. **Check saved HTML when scraping is wrong.** Every search page visit writes a snapshot to `output/debug/`. When jobs are missing or fields are empty, open the relevant file:
    - Search pages: `output/debug/debug_{label}_p{n}.html`
    - First detail page fetched: `output/debug/debug_detail_first.html`
    - Jobs with missing description: `output/debug/debug_detail_missing_desc_{id}.html`
-   Read the actual HTML structure before writing any new selectors — do not guess.
+     Read the actual HTML structure before writing any new selectors — do not guess.
 
 3. **Run the scraper to verify live behaviour.** Running `python main.py fetch` is allowed and encouraged when diagnosing scraper issues. Check the printed output (job counts per page, filtered reasons, description lengths) and the saved HTML together.
 
@@ -145,12 +166,14 @@ main.py fetch  →  output/raw/raw_jobs_DATE.json
 ### LLM provider
 
 Swap providers by editing `config/config.yaml`:
+
 ```yaml
 llm:
-  provider: claude        # or "gemini"
+  provider: claude # or "gemini"
   model: claude-haiku-4-5-20251001
   api_key_env: ANTHROPIC_API_KEY
 ```
+
 No code changes needed.
 
 ### Filtering
@@ -162,6 +185,7 @@ No code changes needed.
 ### Seen jobs / duplicate detection
 
 `data/seen_jobs.json` maps job ID → `{ first_seen, title, company, applied, applied_date }`.
+
 - `job_search/pipeline/score.py` reads this on each run and flags jobs with `⚠️ PREVIOUSLY APPLIED`.
 - `job_search/pipeline/report.py` writes back to this file when it processes applied checkboxes.
 

@@ -110,6 +110,8 @@ def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
         blocks.append(f"🔧 **Tech:** {analysis.tech_notes}")
     if analysis.seniority_required and analysis.seniority_required != "Unknown":
         blocks.append(f"📊 {analysis.seniority_required}")
+    if getattr(analysis, "salary_range", None):
+        blocks.append(f"💰 {analysis.salary_range}")
     if analysis.industry and analysis.industry != "Unknown":
         blocks.append(f"🏭 {analysis.industry}")
 
