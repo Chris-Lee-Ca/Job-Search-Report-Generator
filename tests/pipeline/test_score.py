@@ -57,32 +57,31 @@ def test_score_capped_at_100():
 
 def test_section_contains_score_company_title():
     from job_search.pipeline.score import _format_job_section
-    out = _format_job_section(_sample_job(), _analysis(score=85), previously_applied=False)
+    out = _format_job_section(_sample_job(), _analysis(score=85))
     assert "[85]" in out
     assert "Acme Corp" in out
     assert "Software Engineer" in out
 
 def test_section_contains_linkedin_url():
     from job_search.pipeline.score import _format_job_section
-    out = _format_job_section(_sample_job(), _analysis(), previously_applied=False)
+    out = _format_job_section(_sample_job(), _analysis())
     assert "https://www.linkedin.com/jobs/view/123456/" in out
 
 def test_section_has_unchecked_applied_box():
     from job_search.pipeline.score import _format_job_section
-    out = _format_job_section(_sample_job(), _analysis(), previously_applied=False)
+    out = _format_job_section(_sample_job(), _analysis())
     assert "- [ ] Applied" in out
 
-def test_previously_applied_marker():
+def test_section_has_unchecked_hide_box():
     from job_search.pipeline.score import _format_job_section
-    out = _format_job_section(_sample_job(), _analysis(), previously_applied=True)
-    assert "PREVIOUSLY APPLIED" in out
+    out = _format_job_section(_sample_job(), _analysis())
+    assert "- [ ] Hide" in out
 
 def test_section_shows_matched_skills():
     from job_search.pipeline.score import _format_job_section
     out = _format_job_section(
         _sample_job(),
         _analysis(matched_required_skills=["Python", "Go"], matched_nice_skills=["Kubernetes"]),
-        previously_applied=False,
     )
     assert "Python" in out
     assert "Go" in out
@@ -91,7 +90,7 @@ def test_section_shows_matched_skills():
 def test_section_long_description_not_included():
     from job_search.pipeline.score import _format_job_section
     long_desc = "x" * 400
-    out = _format_job_section(_sample_job(description=long_desc), _analysis(), previously_applied=False)
+    out = _format_job_section(_sample_job(description=long_desc), _analysis())
     assert long_desc not in out
 
 
@@ -192,3 +191,64 @@ def test_default_max_years_is_6(tmp_path, monkeypatch):
 
     criteria_text = " ".join(captured_criteria[0])
     assert "6 or more years" in criteria_text
+
+
+# ── previously-applied / hidden pre-filter ───────────────────────────────────
+
+def _run_score_with_seen(tmp_path, monkeypatch, seen_jobs: dict):
+    """Helper: run score pipeline with a given seen_jobs state, return output markdown."""
+    cfg = _make_config(max_years=6)
+    raw = [_sample_job()]
+    raw_file = tmp_path / "raw_jobs_2026-01-01.json"
+    raw_file.write_text(json.dumps(raw))
+    out_file = tmp_path / "out.md"
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    with (
+        patch("job_search.pipeline.score.load_config", return_value=cfg),
+        patch("job_search.pipeline.score.load_resume", return_value="resume text"),
+        patch("job_search.pipeline.score.load_seen_jobs", return_value=seen_jobs),
+        patch("job_search.pipeline.score.save_seen_jobs"),
+        patch("job_search.pipeline.score.update_scored"),
+        patch("job_search.providers.llm.claude.ClaudeProvider.analyze_job") as mock_llm,
+    ):
+        from job_search.pipeline.score import run_score_filter
+        run_score_filter(raw_jobs_path=str(raw_file), output_path=str(out_file))
+        return out_file.read_text(), mock_llm
+
+
+def test_previously_applied_job_goes_to_filtered_section(tmp_path, monkeypatch):
+    seen = {"123456": {"applied": True, "applied_date": "2026-01-01", "skip": False, "first_seen": "2026-01-01", "title": "Software Engineer", "company": "Acme Corp"}}
+    out, mock_llm = _run_score_with_seen(tmp_path, monkeypatch, seen)
+    mock_llm.assert_not_called()
+    assert "Previously applied" in out
+    assert "Filtered Out" in out
+
+
+def test_hidden_job_goes_to_filtered_section(tmp_path, monkeypatch):
+    seen = {"123456": {"applied": False, "applied_date": None, "skip": True, "first_seen": "2026-01-01", "title": "Software Engineer", "company": "Acme Corp"}}
+    out, mock_llm = _run_score_with_seen(tmp_path, monkeypatch, seen)
+    mock_llm.assert_not_called()
+    assert "Hidden by user" in out
+    assert "Filtered Out" in out
+
+
+def test_new_job_not_in_seen_is_scored(tmp_path, monkeypatch):
+    cfg = _make_config(max_years=6)
+    raw = [_sample_job()]
+    raw_file = tmp_path / "raw_jobs_2026-01-01.json"
+    raw_file.write_text(json.dumps(raw))
+    out_file = tmp_path / "out.md"
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    with (
+        patch("job_search.pipeline.score.load_config", return_value=cfg),
+        patch("job_search.pipeline.score.load_resume", return_value="resume text"),
+        patch("job_search.pipeline.score.load_seen_jobs", return_value={}),
+        patch("job_search.pipeline.score.save_seen_jobs"),
+        patch("job_search.pipeline.score.update_scored"),
+        patch("job_search.providers.llm.claude.ClaudeProvider.analyze_job", return_value=_analysis()) as mock_llm,
+    ):
+        from job_search.pipeline.score import run_score_filter
+        run_score_filter(raw_jobs_path=str(raw_file), output_path=str(out_file))
+        mock_llm.assert_called_once()

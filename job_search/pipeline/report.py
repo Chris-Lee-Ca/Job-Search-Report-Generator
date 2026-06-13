@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 
 from job_search.config import load_seen_jobs, save_seen_jobs
+from job_search.pipeline.stats import backfill_from_files, load_daily_stats, update_applied
+from job_search.pipeline.chart import generate_trend_chart, CHART_PATH
 
 REPORTS_DIR = Path("reports")
 
@@ -19,27 +21,15 @@ def extract_date_from_filename(path: str) -> str:
     return datetime.now().strftime("%Y-%m-%d")
 
 
-def parse_applied_jobs(daily_file: str) -> list[dict]:
-    """
-    Parse the daily job file and return jobs where the user checked [x] Applied.
-
-    Job section structure:
-        ### [95] Company — Title · emoji WorkMode
-        ...
-        [View on LinkedIn](URL)
-        - [x] Applied        ← we look for this
-    """
+def _parse_job_sections(daily_file: str) -> list[dict]:
+    """Split the daily file into per-job section dicts with all parsed fields."""
     with open(daily_file, "r", encoding="utf-8") as f:
         content = f.read()
 
     sections = re.split(r"(?=^### \[)", content, flags=re.MULTILINE)
-
-    applied = []
+    parsed = []
 
     for section in sections:
-        if "- [x] Applied" not in section and "- [X] Applied" not in section:
-            continue
-
         heading_match = re.match(
             r"### \[(\d+)\]\s+(?:(.+?)\s+)?—\s+(.+?)(?:\s+·|$)", section
         )
@@ -56,15 +46,30 @@ def parse_applied_jobs(daily_file: str) -> list[dict]:
         job_id_match = re.search(r"/jobs/view/(\d+)", url)
         job_id = job_id_match.group(1) if job_id_match else None
 
-        applied.append({
+        applied = "- [x] Applied" in section or "- [X] Applied" in section
+        hidden = "- [x] Hide" in section or "- [X] Hide" in section
+
+        parsed.append({
             "job_id": job_id,
             "company": company,
             "title": title,
             "url": url,
             "score": score,
+            "applied": applied,
+            "hidden": hidden,
         })
 
-    return applied
+    return parsed
+
+
+def parse_applied_jobs(daily_file: str) -> list[dict]:
+    """Return jobs where the user checked [x] Applied."""
+    return [j for j in _parse_job_sections(daily_file) if j["applied"]]
+
+
+def parse_hidden_jobs(daily_file: str) -> list[dict]:
+    """Return jobs where the user checked [x] Hide."""
+    return [j for j in _parse_job_sections(daily_file) if j["hidden"]]
 
 
 def generate_report(applied_jobs: list[dict], date: str, append: bool, out_path: Path):
@@ -101,31 +106,59 @@ def run_report(daily_file: str, append: bool = False):
 
     date = extract_date_from_filename(daily_file)
     applied_jobs = parse_applied_jobs(daily_file)
+    hidden_jobs = parse_hidden_jobs(daily_file)
 
-    if not applied_jobs:
-        print("No checked jobs found. Mark jobs with '- [x] Applied' in the daily file first.")
+    if not applied_jobs and not hidden_jobs:
+        print("No checked jobs found. Mark jobs with '- [x] Applied' or '- [x] Hide' in the daily file first.")
         return
 
-    print(f"Found {len(applied_jobs)} applied job(s):")
-    for job in applied_jobs:
-        print(f"  · {job['company']} — {job['title']}")
-
     seen = load_seen_jobs()
-    for job in applied_jobs:
-        job_id = job.get("job_id")
-        if job_id:
-            if job_id in seen:
-                seen[job_id]["applied"] = True
-                seen[job_id]["applied_date"] = date
-            else:
-                seen[job_id] = {
-                    "first_seen": date,
-                    "title": job["title"],
-                    "company": job["company"],
-                    "applied": True,
-                    "applied_date": date,
-                }
+
+    if applied_jobs:
+        print(f"Found {len(applied_jobs)} applied job(s):")
+        for job in applied_jobs:
+            print(f"  · {job['company']} — {job['title']}")
+        for job in applied_jobs:
+            job_id = job.get("job_id")
+            if job_id:
+                if job_id in seen:
+                    seen[job_id]["applied"] = True
+                    seen[job_id]["applied_date"] = date
+                else:
+                    seen[job_id] = {
+                        "first_seen": date,
+                        "title": job["title"],
+                        "company": job["company"],
+                        "applied": True,
+                        "applied_date": date,
+                        "skip": False,
+                    }
+
+    if hidden_jobs:
+        print(f"Hiding {len(hidden_jobs)} job(s) — won't appear in future runs:")
+        for job in hidden_jobs:
+            print(f"  · {job['company']} — {job['title']}")
+        for job in hidden_jobs:
+            job_id = job.get("job_id")
+            if job_id:
+                if job_id in seen:
+                    seen[job_id]["skip"] = True
+                else:
+                    seen[job_id] = {
+                        "first_seen": date,
+                        "title": job["title"],
+                        "company": job["company"],
+                        "applied": False,
+                        "applied_date": None,
+                        "skip": True,
+                    }
+
     save_seen_jobs(seen)
+
+    print("seen_jobs.json updated.")
+
+    if not applied_jobs:
+        return
 
     if append:
         year_month = date[:7]
@@ -137,6 +170,11 @@ def run_report(daily_file: str, append: bool = False):
 
     total_applied = sum(1 for v in seen.values() if v.get("applied"))
 
+    # Update daily stats and regenerate the trend chart
+    update_applied(date, len(applied_jobs))
+    backfill_from_files()
+    generate_trend_chart(load_daily_stats())
+
     print(f"\nReport saved → {out_path}")
-    print("seen_jobs.json updated.")
+    print(f"Trend chart updated → {CHART_PATH}")
     print(f"\nTotal jobs applied since day 1: {total_applied}")

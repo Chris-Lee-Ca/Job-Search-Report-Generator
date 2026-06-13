@@ -66,6 +66,7 @@ Reads `output/raw/raw_jobs_DATE.json` and passes each job to the configured LLM 
 ### Code-based steps (before and after LLM)
 
 - **Deduplication**: jobs with identical (title, company, location) across multiple LinkedIn IDs are merged.
+- **Previously applied / hidden pre-filter**: jobs already in `data/seen_jobs.json` with `applied: true` or `skip: true` are filtered out immediately — no LLM call, no cost. They appear in the **Filtered Out** section of the daily file under "Previously applied" or "Hidden by user".
 - **Remote/Hybrid bonus**: after the LLM returns a score, a configurable point bonus is added for Remote (+N) or Hybrid (+N/2) roles.
 
 ### LLM-evaluated hard filters
@@ -93,23 +94,26 @@ Additional rules:
 - If the job requires a specific tech stack the candidate doesn't have (e.g. Java-only, .NET-only), score is capped at **15**.
 - Remote roles get a configurable bonus (default **+5 pts**). Adjust via `scoring.remote_score_bonus` in `config/config.yaml`.
 
-**Output:** `output/daily_jobs_DATE.md` — jobs sorted by score descending, each with a `- [ ] Applied` checkbox.
+**Output:** `output/daily_jobs_DATE.md` — jobs sorted by score descending, each with a `- [ ] Applied` and `- [ ] Hide` checkbox.
 
 ---
 
 ## Phase 3 — Report (`main.py report`)
 
-After reviewing the daily file, mark jobs you applied to:
+After reviewing the daily file, check the boxes for any actions you want to take:
 
 ```markdown
-- [x] Applied
+- [x] Applied   ← mark jobs you applied to
+- [x] Hide      ← permanently dismiss a job you never want to see again
 ```
 
 Running `main.py report` then:
-1. Parses all checked jobs from the daily file.
-2. Writes an EI-ready Markdown table to `reports/applied_DATE.md`.
-3. Updates `data/seen_jobs.json` with applied status and date.
-4. Future runs flag previously-applied jobs with ⚠️ so you don't accidentally re-apply.
+1. Parses all checked **Applied** and **Hide** boxes from the daily file.
+2. Updates `data/seen_jobs.json`:
+   - Applied jobs get `applied: true` and `applied_date` — future runs skip them (no LLM, listed under "Previously applied" in Filtered Out).
+   - Hidden jobs get `skip: true` — future runs skip them (no LLM, listed under "Hidden by user" in Filtered Out).
+3. If any Applied jobs were found, writes an EI-ready Markdown table to `reports/applied_DATE.md`.
+4. If only Hide boxes were checked (no Applied), `seen_jobs.json` is still updated — no report file is written.
 
 ---
 

@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -20,6 +21,7 @@ Vancouver, BC · Full-time
 [View on LinkedIn](https://www.linkedin.com/jobs/view/111111111/)
 
 - [x] Applied
+- [ ] Hide
 
 ---
 
@@ -29,6 +31,7 @@ Vancouver, BC · Full-time
 [View on LinkedIn](https://www.linkedin.com/jobs/view/222222222/)
 
 - [ ] Applied
+- [x] Hide
 
 ---
 
@@ -37,6 +40,7 @@ Vancouver, BC · Full-time
 [View on LinkedIn](https://www.linkedin.com/jobs/view/333333333/)
 
 - [x] Applied
+- [ ] Hide
 
 ---
 
@@ -138,3 +142,73 @@ def test_append_mode_adds_to_existing(tmp_path):
     content = out.read_text()
     assert "Stripe" in content
     assert "Shopify" in content
+
+
+# ── parse_hidden_jobs ─────────────────────────────────────────────────────────
+
+def test_parses_hidden_jobs_only(tmp_path):
+    from job_search.pipeline.report import parse_hidden_jobs
+    f = tmp_path / "daily.md"
+    f.write_text(SAMPLE_DAILY)
+    result = parse_hidden_jobs(str(f))
+    assert len(result) == 1
+    assert result[0]["company"] == "Shopify"
+
+def test_applied_job_not_in_hidden(tmp_path):
+    from job_search.pipeline.report import parse_hidden_jobs
+    f = tmp_path / "daily.md"
+    f.write_text(SAMPLE_DAILY)
+    result = parse_hidden_jobs(str(f))
+    assert not any(j["company"] == "Stripe" for j in result)
+    assert not any(j["company"] == "Acme" for j in result)
+
+
+# ── run_report hide handling ──────────────────────────────────────────────────
+
+def test_hide_checkbox_sets_skip_in_seen_jobs(tmp_path):
+    from job_search.pipeline.report import run_report
+    f = tmp_path / "daily_jobs_2026-05-14.md"
+    f.write_text(SAMPLE_DAILY)
+
+    seen = {}
+    saved = {}
+
+    def fake_load():
+        return seen
+
+    def fake_save(data):
+        saved.update(data)
+
+    with (
+        patch("job_search.pipeline.report.load_seen_jobs", fake_load),
+        patch("job_search.pipeline.report.save_seen_jobs", fake_save),
+        patch("job_search.pipeline.report.update_applied"),
+        patch("job_search.pipeline.report.backfill_from_files"),
+        patch("job_search.pipeline.report.generate_trend_chart"),
+        patch("job_search.pipeline.report.load_daily_stats", return_value={}),
+    ):
+        run_report(str(f))
+
+    assert saved.get("222222222", {}).get("skip") is True
+
+def test_hide_only_no_report_generated(tmp_path):
+    """When only Hide is checked (no Applied), no EI report file is written."""
+    from job_search.pipeline.report import run_report
+    hide_only = SAMPLE_DAILY.replace("- [x] Applied", "- [ ] Applied")
+    f = tmp_path / "daily_jobs_2026-05-14.md"
+    f.write_text(hide_only)
+
+    saved = {}
+
+    with (
+        patch("job_search.pipeline.report.load_seen_jobs", return_value={}),
+        patch("job_search.pipeline.report.save_seen_jobs", lambda d: saved.update(d)),
+        patch("job_search.pipeline.report.update_applied"),
+        patch("job_search.pipeline.report.backfill_from_files"),
+        patch("job_search.pipeline.report.generate_trend_chart"),
+        patch("job_search.pipeline.report.load_daily_stats", return_value={}),
+    ):
+        run_report(str(f))
+
+    assert saved.get("222222222", {}).get("skip") is True
+    assert not any((tmp_path / "reports").glob("*.md")) if (tmp_path / "reports").exists() else True

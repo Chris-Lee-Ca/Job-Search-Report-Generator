@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from job_search.config import load_config, load_resume, load_seen_jobs, save_seen_jobs
+from job_search.pipeline.stats import update_scored
 
 OUTPUT_DIR = Path("output")
 RAW_DIR = OUTPUT_DIR / "raw"
@@ -57,6 +58,10 @@ def _filter_false_missing(unmatched: list, resume: str) -> list:
 
 def _categorize_filter_reason(reason: str) -> tuple[str, str | None]:
     """Return (category_label, inline_note) to group filtered jobs."""
+    if reason == "Previously applied":
+        return "Previously applied", None
+    if reason == "Hidden by user":
+        return "Hidden by user", None
     match = re.search(r"[Rr]equires?\s*(\d+)\+?\s*years?", reason)
     if match:
         return "Too much experience required", f"≥{match.group(1)} yrs"
@@ -78,15 +83,14 @@ def _effective_score(score: int, work_mode: str, bonus: int) -> int:
     return score
 
 
-def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
+def _format_job_section(job: dict, analysis) -> str:
     mode_emoji = WORK_MODE_EMOJI.get(analysis.work_mode, "❓")
-    applied_marker = " ⚠️ PREVIOUSLY APPLIED" if previously_applied else ""
 
     company = job.get("company") or ""
     company_part = f"{company} " if company else ""
     header = (
         f"### [{analysis.score}] {company_part}— "
-        f"{job.get('title', '?')} · {mode_emoji} {analysis.work_mode}{applied_marker}"
+        f"{job.get('title', '?')} · {mode_emoji} {analysis.work_mode}"
     )
 
     blocks = [header]
@@ -115,7 +119,7 @@ def _format_job_section(job: dict, analysis, previously_applied: bool) -> str:
     if analysis.industry and analysis.industry != "Unknown":
         blocks.append(f"🏭 {analysis.industry}")
 
-    blocks.append(f"[View on LinkedIn]({job.get('url', '')})\n\n- [ ] Applied")
+    blocks.append(f"[View on LinkedIn]({job.get('url', '')})\n\n- [ ] Applied\n- [ ] Hide")
 
     return "\n\n".join(blocks)
 
@@ -184,6 +188,20 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
             skips += 1
             continue
 
+        # Pre-filter: skip LLM entirely for previously applied or user-hidden jobs
+        previously_applied = seen.get(job_id, {}).get("applied", False)
+        hidden = seen.get(job_id, {}).get("skip", False)
+        if previously_applied or hidden:
+            reason = "Previously applied" if previously_applied else "Hidden by user"
+            print(f"FILTERED ({reason})")
+            filtered_jobs.append({
+                "company": job.get("company", ""),
+                "title": job.get("title", ""),
+                "url": job.get("url", ""),
+                "reason": reason,
+            })
+            continue
+
         try:
             analysis = provider.analyze_job(
                 resume=resume,
@@ -213,9 +231,8 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
                 "company": job.get("company", ""),
                 "applied": False,
                 "applied_date": None,
+                "skip": False,
             }
-
-        previously_applied = seen.get(job_id, {}).get("applied", False)
 
         # Code-level enforcement: filter if min_years_required >= max_years regardless of LLM decision.
         # LLMs often fail to apply this rule consistently, so we enforce it here.
@@ -235,7 +252,7 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
         else:
             analysis.score = _effective_score(analysis.score, analysis.work_mode, remote_bonus)
             print(f"score={analysis.score} ({analysis.work_mode})")
-            scored_jobs.append((job, analysis, previously_applied))
+            scored_jobs.append((job, analysis))
 
     save_seen_jobs(seen)
 
@@ -258,8 +275,8 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
         "",
     ]
 
-    for job, analysis, previously_applied in scored_jobs:
-        lines.append(_format_job_section(job, analysis, previously_applied))
+    for job, analysis in scored_jobs:
+        lines.append(_format_job_section(job, analysis))
         lines.append("\n---\n")
 
     if error_jobs:
@@ -299,6 +316,8 @@ def run_score_filter(raw_jobs_path: str | None = None, output_path: str | None =
 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+
+    update_scored(today, len(scored_jobs))
 
     print(f"\nReport → {out_path}")
     print(f"  {len(scored_jobs)} scored | {len(filtered_jobs)} AI-filtered | {len(error_jobs)} errors | {skips} skipped")

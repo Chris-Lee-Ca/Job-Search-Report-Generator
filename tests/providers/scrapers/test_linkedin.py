@@ -22,6 +22,11 @@ def linkedin_cfg():
                 r"|\bteam\s+lead\b"
                 r"|\btech\s+lead\b"
                 r"|\bengineering\s+lead\b"
+                r"|\bmanager\b|\bdirector\b|\bdata\s+(scientist|analyst)\b|\bdevops\b"
+                r"|\bqa\b|\bsdet\b"
+                r"|\btest\s+(engineer|developer|lead|architect)\b"
+                r"|\bquality\s+(engineer|assurance|designer|analyst)\b"
+                r"|\bautomation\s+(engineer|developer|tester)\b"
             ),
         },
         "location_filter": {
@@ -117,6 +122,50 @@ def test_pre_filter_blocked_company_case_insensitive(linkedin_cfg):
 def test_pre_filter_non_blocked_company_passes(linkedin_cfg):
     from job_search.providers.scrapers.linkedin import _passes_pre_filter
     ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC", linkedin_cfg, company="Acme Corp")
+    assert ok
+
+
+# ── QA / testing title blocks ─────────────────────────────────────────────────
+
+def test_pre_filter_qa_automation_engineer_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("QA Automation Engineer", "Vancouver, BC", linkedin_cfg)
+    assert not ok
+    assert "lead/principal" in reason
+
+def test_pre_filter_qa_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Senior QA Developer", "Canada · Remote", linkedin_cfg)
+    assert not ok
+
+def test_pre_filter_sdet_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("SDET II", "Vancouver, BC", linkedin_cfg)
+    assert not ok
+
+def test_pre_filter_test_engineer_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Test Engineer", "Canada · Remote", linkedin_cfg)
+    assert not ok
+
+def test_pre_filter_quality_assurance_engineer_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Quality Assurance Engineer", "Vancouver, BC", linkedin_cfg)
+    assert not ok
+
+def test_pre_filter_automation_engineer_blocked(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, reason = _passes_pre_filter("Automation Engineer", "Canada · Remote", linkedin_cfg)
+    assert not ok
+
+def test_pre_filter_software_engineer_not_blocked_by_qa_patterns(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC", linkedin_cfg)
+    assert ok
+
+def test_pre_filter_backend_engineer_not_blocked_by_qa_patterns(linkedin_cfg):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    ok, _ = _passes_pre_filter("Backend Engineer", "Canada · Remote", linkedin_cfg)
     assert ok
 
 
