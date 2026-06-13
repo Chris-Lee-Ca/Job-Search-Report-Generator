@@ -41,7 +41,7 @@ a{color:inherit;text-decoration:none}
 .sbar{height:4px;border-radius:2px;background:var(--accent)}
 .ctitle{flex:1;min-width:0}
 .ctitle h3{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);min-width:0}
-.cco{color:var(--sub);font-size:12px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cco{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .badge{font-size:11px;padding:2px 8px;border-radius:10px;white-space:nowrap;flex-shrink:0;font-weight:500}
 .mode-r{background:#ecfdf5;color:#059669}
 .mode-h{background:#fffbeb;color:var(--orange)}
@@ -63,10 +63,11 @@ a{color:inherit;text-decoration:none}
 .lilink{font-size:12px;color:var(--accent);flex:1}
 .lilink:hover{text-decoration:underline}
 .btn{padding:5px 12px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid;transition:all .15s;font-weight:500;background:#fff}
-.btn-a{border-color:#86efac;color:var(--green)}
-.btn-a.on{background:var(--green);color:#fff;border-color:var(--green)}
 .btn-s{border-color:var(--border);color:var(--sub)}
 .btn-s.on{border-color:var(--danger);color:var(--danger);background:#fef2f2}
+.chk-wrap{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid #86efac;color:var(--green);font-weight:500;background:#fff;user-select:none;transition:all .15s}
+.chk-wrap.on{background:var(--green);color:#fff;border-color:var(--green)}
+.chk-wrap input{width:13px;height:13px;accent-color:var(--green);cursor:pointer}
 
 .fsec-hdr{font-size:12px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 6px}
 .flist{padding:10px 14px;background:var(--card);border:1px solid var(--border);border-radius:8px}
@@ -181,8 +182,8 @@ function buildCard(job){
         <div class="sbar-wrap"><div class="sbar" style="width:${job.score}%"></div></div>
       </div>
       <div class="ctitle">
-        <h3>${esc(job.title)}</h3>
         <div class="cco">${esc(job.company)}</div>
+        <h3>${esc(job.title)}</h3>
       </div>
       <span class="badge ${MODE_CLASS[job.work_mode]||'mode-u'}">${esc(job.work_mode)}</span>
     </div>
@@ -191,8 +192,7 @@ function buildCard(job){
     ${buildSkillsHtml(job)}
     <div class="cfoot">
       <a class="lilink" href="${esc(job.url)}" target="_blank" rel="noopener">↗ View on LinkedIn</a>
-      <button class="btn btn-a${s.applied?' on':''}" data-id="${esc(job.job_id)}" data-act="applied">${
-        s.applied?'✓ Applied':'Applied'}</button>
+      <label class="chk-wrap${s.applied?' on':''}"><input type="checkbox" data-id="${esc(job.job_id)}" data-act="applied" ${s.applied?'checked':''}>${s.applied?'Applied':'Apply'}</label>
       <button class="btn btn-s${s.hidden?' on':''}" data-id="${esc(job.job_id)}" data-act="hidden">${
         s.hidden?'↩ Unhide':'Skip'}</button>
     </div>`;
@@ -268,6 +268,21 @@ function setupFilters(){
   });
 }
 
+document.getElementById('main').addEventListener('change',async function(e){
+  const input=e.target.closest('input[data-act="applied"]'); if(!input) return;
+  const jobId=input.dataset.id, newVal=input.checked;
+  const cur=jobState(jobId);
+  state[jobId]={applied:cur.applied||false, hidden:cur.hidden||false};
+  state[jobId].applied=newVal;
+  await postToggle(jobId,'applied',newVal);
+  const card=document.querySelector(`.card[data-id="${jobId}"]`); if(!card) return;
+  card.classList.toggle('applied',newVal);
+  const lbl=input.closest('.chk-wrap');
+  lbl.classList.toggle('on',newVal);
+  lbl.lastChild.textContent=newVal?'Applied':'Apply';
+  updateSummary();
+});
+
 document.getElementById('main').addEventListener('click',async function(e){
   const btn=e.target.closest('.btn[data-act]'); if(!btn) return;
   const jobId=btn.dataset.id, act=btn.dataset.act;
@@ -278,16 +293,9 @@ document.getElementById('main').addEventListener('click',async function(e){
   await postToggle(jobId, act, newVal);
 
   const card=document.querySelector(`.card[data-id="${jobId}"]`); if(!card) return;
-  if(act==='applied'){
-    card.classList.toggle('applied',newVal);
-    btn.classList.toggle('on',newVal);
-    btn.textContent=newVal?'✓ Applied':'Applied';
-  } else {
-    card.classList.toggle('skipped',newVal);
-    btn.classList.toggle('on',newVal);
-    btn.textContent=newVal?'↩ Unhide':'Skip';
-    if(!showHidden){ if(newVal) card.setAttribute('hidden',''); else card.removeAttribute('hidden'); }
-  }
+  card.classList.toggle('skipped',newVal);
+  btn.classList.toggle('on',newVal);
+  btn.textContent=newVal?'↩ Unhide':'Skip';
   updateSummary();
 });
 
