@@ -9,8 +9,12 @@ Automates daily LinkedIn job screening and application tracking. Fetches job lis
 ```
 main.py fetch  →  output/raw/raw_jobs_DATE.json
                           ↓
-              main.py score  →  output/daily_jobs_DATE.md
-                                         ↓  (user checks boxes)
+              main.py score  →  output/daily_jobs_DATE.md   ← single source of truth
+                                         ↓
+                           main.py serve  (browser UI — renders .md dynamically)
+                           — or —
+                           edit .md directly in VS Code
+                                         ↓  (Applied / Hide boxes checked)
                            main.py report  →  reports/applied_DATE.md
                                                           ↓
                                         data/seen_jobs.json  (updated)
@@ -20,7 +24,8 @@ main.py fetch  →  output/raw/raw_jobs_DATE.json
 |-------|---------|-------|--------|
 | 1 — Fetch | `main.py fetch` | `config/config.yaml` search URLs | `output/raw/raw_jobs_DATE.json` |
 | 2 — Score & Filter | `main.py score` | raw jobs JSON + `resume.md` | `output/daily_jobs_DATE.md` |
-| 3 — Report | `main.py report` | checked daily file | `reports/applied_DATE.md` |
+| 3 — Review | `main.py serve` | daily `.md` file | browser at `localhost:5757` |
+| 4 — Report | `main.py report` | checked daily `.md` file | `reports/applied_DATE.md` |
 
 ---
 
@@ -98,9 +103,28 @@ Additional rules:
 
 ---
 
-## Phase 3 — Report (`main.py report`)
+## Phase 3 — Serve (`main.py serve`)
 
-After reviewing the daily file, check the boxes for any actions you want to take:
+Starts a local browser UI for reviewing and interacting with today's job list. The **markdown file is the only file** — no HTML is written to disk. The server reads and renders the `.md` on every page load, so VS Code edits and browser clicks stay in sync automatically.
+
+```bash
+python main.py serve                                    # opens today's file
+python main.py serve output/daily_jobs_2026-05-19.md   # explicit date
+```
+
+The browser opens at `http://localhost:5757` and shows styled job cards with:
+- **Score bar** and skill tags (✅ has / ❌ missing / ⭐ nice-to-have)
+- **Applied** and **Skip** toggle buttons — each click patches the `.md` checkbox immediately
+- **Filter bar** — score threshold slider, Remote/Hybrid/Onsite toggles, text search
+- **Filtered Out** section at the bottom
+
+After clicking, run `main.py report` as normal — it reads the same `.md` file.
+
+---
+
+## Phase 4 — Report (`main.py report`)
+
+After reviewing the daily file (via `serve` or directly in VS Code), check the boxes for any actions you want to take:
 
 ```markdown
 - [x] Applied   ← mark jobs you applied to
@@ -181,6 +205,12 @@ python main.py fetch --from-ids output/raw/job_ids_2026-05-19.json
 # Score an existing raw jobs file without re-scraping
 python main.py score output/raw/raw_jobs_2026-05-19.json
 
+# Open today's job list in the browser for interactive review
+python main.py serve
+
+# Open a specific day's list
+python main.py serve output/daily_jobs_2026-05-19.md
+
 # Generate EI report from a checked daily file
 python main.py report output/daily_jobs_2026-05-19.md
 
@@ -257,7 +287,11 @@ Read the actual HTML before writing new selectors — never guess.
 │   ├── pipeline/
 │   │   ├── fetch.py               LinkedIn scrape orchestrator
 │   │   ├── score.py               AI filter + scorer → daily job checklist
-│   │   └── report.py              EI application report generator
+│   │   ├── report.py              EI application report generator
+│   │   ├── serve.py               Flask server — dynamically renders .md as HTML
+│   │   ├── html_template.py       Self-contained HTML/CSS/JS template (server-side rendered)
+│   │   ├── chart.py               Application ratio trend chart (PNG)
+│   │   └── stats.py               Daily scored/applied stats tracker
 │   └── providers/
 │       ├── llm/
 │       │   ├── base.py            LLMProvider interface + JobAnalysis dataclass
@@ -281,7 +315,8 @@ Read the actual HTML before writing new selectors — never guess.
 ├── browser_data/                  Persistent Chrome profile from --setup (gitignored)
 ├── data/seen_jobs.json            Tracks all seen jobs and applied status
 ├── output/
-│   ├── daily_jobs_DATE.md         Daily job checklists (gitignored)
+│   ├── daily_jobs_DATE.md         Daily job checklist — single source of truth (gitignored)
+│   ├── application_trend.png      Applied/scored ratio chart (regenerated on each report run)
 │   ├── raw/                       Intermediate scrape artifacts (gitignored)
 │   │   ├── raw_jobs_DATE.json     Full job data from detail pages
 │   │   └── job_ids_DATE.json      IDs checkpoint for --from-ids resume

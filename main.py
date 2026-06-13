@@ -9,6 +9,8 @@ Commands:
     python main.py fetch --from-ids output/raw/job_ids_2026-05-20.json
     python main.py score              # Re-score today's raw jobs
     python main.py score output/raw/raw_jobs_2026-05-20.json
+    python main.py serve              # Open today's job report in browser
+    python main.py serve output/daily_jobs_2026-05-20.md
     python main.py report output/daily_jobs_2026-05-20.md
     python main.py report output/daily_jobs_2026-05-20.md --append
     python main.py retry-errors output/daily_jobs_2026-05-20.md
@@ -74,6 +76,24 @@ def report(daily_file: str, append: bool):
     from job_search.pipeline.report import run_report
     try:
         run_report(daily_file, append=append)
+    except FileNotFoundError as e:
+        click.echo(str(e), err=True)
+        sys.exit(1)
+
+
+@cli.command()
+@click.argument("html_file", required=False, default=None, metavar="[HTML_FILE]")
+@click.option("--port", default=5757, show_default=True, help="Port for the local server.")
+def serve(html_file: str | None, port: int):
+    """Open the HTML job report in the browser with interactive Applied/Skip buttons."""
+    from datetime import datetime
+    from job_search.pipeline.serve import run_serve
+
+    if html_file is None:
+        today = datetime.now().strftime("%Y-%m-%d")
+        html_file = f"output/daily_jobs_{today}.md"
+    try:
+        run_serve(html_file, port=port)
     except FileNotFoundError as e:
         click.echo(str(e), err=True)
         sys.exit(1)
