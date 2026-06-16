@@ -211,11 +211,17 @@ python main.py serve
 # Open a specific day's list
 python main.py serve output/daily_jobs_2026-05-19.md
 
+# Open on a custom port (default 5757)
+python main.py serve --port 8080
+
 # Generate EI report from a checked daily file
 python main.py report output/daily_jobs_2026-05-19.md
 
 # Append to a running monthly log instead of a new file
 python main.py report output/daily_jobs_2026-05-19.md --append
+
+# Re-score only the error jobs from a daily file (stops on first new error)
+python main.py retry-errors output/daily_jobs_2026-05-19.md
 ```
 
 ---
@@ -228,23 +234,33 @@ The config is a single YAML file with inline comments throughout. Key sections:
 |---------|---------|
 | `search_urls` | LinkedIn search URLs to scrape. Each entry: `label`, `url`, `remote_only` |
 | `hard_filter_criteria` | Plain-English AI filter rules. Edit freely — no code changes needed. |
-| `llm.provider` | `"claude"` or `"gemini"` |
-| `llm.model` | Model ID (e.g. `"claude-haiku-4-5-20251001"`, `"gemini-2.0-flash"`) |
-| `llm.api_key_env` | Name of the environment variable holding the API key |
-| `scoring.remote_score_bonus` | Extra pts added for Remote roles (default `5`) |
+| `llm.provider` | `"claude"`, `"gemini"`, or `"ollama"` |
+| `llm.model` | Model ID (e.g. `"claude-haiku-4-5-20251001"`, `"gemini-2.5-flash"`, `"qwen2.5:14b"`) |
+| `llm.api_key_env` | Name of the environment variable holding the API key (not needed for `ollama`) |
+| `llm.base_url` | Ollama API endpoint (default `http://localhost:11434/v1`; override with `OLLAMA_BASE_URL` env var) |
+| `scoring.remote_score_bonus` | Extra pts added for Remote roles (default `5`; half applied to Hybrid) |
+| `scoring.max_years` | Hard cap on `min_years_required` — jobs at or above this threshold are always filtered (default `6`) |
 | `linkedin.pre_filter` | `blocked_companies` (applied after detail fetch), `staff_title_pattern`, `lead_principal_title_pattern` (applied at card stage) |
 | `linkedin.location_filter` | `metro_vancouver` (always keep) and `blocked_non_bc_cities` (block unless remote) |
+| `linkedin.delay_multiplier` | Scales all scraper delays. `1.0` = safe; `0.4` = faster; `2.0` = if LinkedIn throttles |
 
 **Switching LLM providers:** edit the `llm:` section in `config/config.yaml`. No code changes needed.
 
 ```yaml
+# Gemini (cloud, fast):
 llm:
   provider: gemini
-  model: gemini-2.0-flash
+  model: gemini-2.5-flash
   api_key_env: GEMINI_API_KEY
+
+# Ollama (free local inference — no API key needed):
+llm:
+  provider: ollama
+  model: qwen2.5:14b
+  base_url: http://localhost:11434/v1
 ```
 
-**Running the LLM on a remote GPU (recommended for speed):** if you have a Windows machine with a dedicated NVIDIA GPU on the same network, you can run Ollama there and connect from your Mac — a dedicated GPU takes ~2–3 seconds/job vs 30–90 seconds on a Mac using CPU/Metal. Change `base_url` in `config/config.yaml` to point to the Windows machine's IP. See [docs/windows-gpu-ollama.md](docs/windows-gpu-ollama.md) for the full setup guide including firewall configuration.
+**Running the LLM on a remote GPU (recommended for speed):** if you have a Windows machine with a dedicated NVIDIA GPU on the same network, you can run Ollama there and connect from your Mac — a dedicated GPU takes ~2–3 seconds/job vs 30–90 seconds on a Mac using CPU/Metal. Set `OLLAMA_BASE_URL` in `config/.env` to point to the Windows machine's IP (avoids committing your IP to git). See [docs/windows-gpu-ollama.md](docs/windows-gpu-ollama.md) for the full setup guide including firewall configuration.
 
 ---
 
@@ -296,7 +312,8 @@ Read the actual HTML before writing new selectors — never guess.
 │       ├── llm/
 │       │   ├── base.py            LLMProvider interface + JobAnalysis dataclass
 │       │   ├── claude.py          Anthropic Claude implementation
-│       │   └── gemini.py          Google Gemini implementation
+│       │   ├── gemini.py          Google Gemini implementation
+│       │   └── ollama.py          Ollama (local inference) implementation
 │       └── scrapers/
 │           ├── base.py            JobProvider abstract interface
 │           └── linkedin.py        LinkedIn / Playwright implementation
@@ -313,10 +330,11 @@ Read the actual HTML before writing new selectors — never guess.
 │   ├── qa_store.md                Saved Q&A answers (gitignored)
 │   └── qa_store.example.md        Template for qa_store.md
 ├── browser_data/                  Persistent Chrome profile from --setup (gitignored)
-├── data/seen_jobs.json            Tracks all seen jobs and applied status
+├── data/seen_jobs.json            Tracks all seen jobs and applied/hidden status
+├── data/daily_stats.json          Per-date scored/applied counts for the trend chart
 ├── output/
 │   ├── daily_jobs_DATE.md         Daily job checklist — single source of truth (gitignored)
-│   ├── application_trend.png      Applied/scored ratio chart (regenerated on each report run)
+│   ├── application_trend.png      Applied/scored ratio chart (regenerated on each `report` run)
 │   ├── raw/                       Intermediate scrape artifacts (gitignored)
 │   │   ├── raw_jobs_DATE.json     Full job data from detail pages
 │   │   └── job_ids_DATE.json      IDs checkpoint for --from-ids resume

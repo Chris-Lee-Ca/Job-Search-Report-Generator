@@ -14,10 +14,12 @@ The file has inline comments explaining every field. Key sections:
 |-------|---------------|
 | `search_urls` | Your LinkedIn job search URLs. Get them by running a search on LinkedIn and copying the URL. Add `remote_only: true` to pass all jobs through the location pre-filter. |
 | `hard_filter_criteria` | Plain-English rules the AI evaluates per job. Add, remove, or reword lines freely — no code changes needed. |
-| `llm.provider` | `"claude"` or `"gemini"`. |
-| `llm.model` | Model ID. Claude: `"claude-haiku-4-5-20251001"`. Gemini: `"gemini-2.0-flash"`. |
-| `llm.api_key_env` | Name of the environment variable holding your API key (set in `.env`). |
+| `llm.provider` | `"claude"`, `"gemini"`, or `"ollama"`. |
+| `llm.model` | Model ID. Claude: `"claude-haiku-4-5-20251001"`. Gemini: `"gemini-2.5-flash"`. Ollama: any pulled model e.g. `"qwen2.5:14b"`. |
+| `llm.api_key_env` | Name of the environment variable holding your API key (set in `.env`). Not needed for `ollama`. |
+| `llm.base_url` | Ollama only. API endpoint. Defaults to `http://localhost:11434/v1`. Override via `OLLAMA_BASE_URL` in `.env` to point at a remote GPU without committing your IP to git. |
 | `scoring.remote_score_bonus` | Extra points added to Remote roles after AI scoring (default `5`; half applied to Hybrid). |
+| `scoring.max_years` | Hard cap on minimum years of experience. Jobs requiring this many years or more are always filtered, even if the LLM didn't catch it (default `6`). |
 
 ### LinkedIn scraper (`linkedin:`)
 

@@ -125,11 +125,23 @@ python main.py score
 # Score a specific raw jobs file
 python main.py score output/raw/raw_jobs_YYYY-MM-DD.json
 
+# Open today's daily file as an interactive browser UI (Flask server on port 5757)
+python main.py serve
+
+# Open a specific daily file in the browser UI
+python main.py serve output/daily_jobs_YYYY-MM-DD.md
+
+# Open on a custom port
+python main.py serve --port 8080
+
 # Generate EI application report from a checked daily file
 python main.py report output/daily_jobs_YYYY-MM-DD.md
 
 # Append to a running monthly log instead of a new file
 python main.py report output/daily_jobs_YYYY-MM-DD.md --append
+
+# Re-score only the error jobs from a daily file (stops on first new error)
+python main.py retry-errors output/daily_jobs_YYYY-MM-DD.md
 ```
 
 Dependencies: `pip install -r requirements.txt` then `playwright install chromium`
@@ -143,11 +155,17 @@ The pipeline runs in this order:
 ```
 main.py fetch  →  output/raw/raw_jobs_DATE.json
                          ↓
-               main.py score  →  output/daily_jobs_DATE.md
-                                          ↓ (user checks boxes)
+               main.py score  →  output/daily_jobs_DATE.md  ← single source of truth
+                                          ↓
+                           main.py serve  (browser UI — reads + patches .md live)
+                           — or —
+                           edit .md directly in VS Code
+                                          ↓ (Applied / Hide boxes checked)
                             main.py report  →  reports/applied_DATE.md
                                                         ↓
                                           data/seen_jobs.json (updated)
+                                          data/daily_stats.json (updated)
+                                          output/application_trend.png (regenerated)
 ```
 
 ### Key files
@@ -155,26 +173,47 @@ main.py fetch  →  output/raw/raw_jobs_DATE.json
 - `config/resume.md` — user's background; read by the assistant and the scorer. Gitignored — copy from `config/resume.example.md`.
 - `config/qa_store.md` — saved Q&A answers; always checked before generating new responses. Gitignored.
 - `config/config.yaml` — all pipeline config with inline comments: search URLs, LLM provider, hard filter criteria, scoring, and LinkedIn-specific pre-filter settings (city lists, title patterns, blocked companies).
-- `data/seen_jobs.json` — persistent record of every job ID seen and whether it was applied to.
+- `data/seen_jobs.json` — persistent record of every job ID seen and whether it was applied to or hidden.
+- `data/daily_stats.json` — per-date counts of scored and applied jobs; used by `chart.py` to draw the trend chart.
 - `job_search/config.py` — single shared loader for config, resume, and seen_jobs used by all pipeline modules.
+- `job_search/pipeline/fetch.py` — LinkedIn scrape orchestrator (card collection + detail fetch).
+- `job_search/pipeline/score.py` — AI filter + scorer; writes `output/daily_jobs_DATE.md`.
+- `job_search/pipeline/serve.py` — Flask server: parses the `.md`, renders HTML on every GET `/`, and patches checkbox state on POST `/toggle`.
+- `job_search/pipeline/html_template.py` — self-contained HTML/CSS/JS string embedded by `serve.py` at render time.
+- `job_search/pipeline/report.py` — reads checked `.md` boxes, updates `seen_jobs.json`, writes EI report.
+- `job_search/pipeline/retry_errors.py` — re-scores only the error entries in a daily file; stops on first new error.
+- `job_search/pipeline/chart.py` — generates the `output/application_trend.png` bar + line chart.
+- `job_search/pipeline/stats.py` — loads/saves `data/daily_stats.json`; backfills from existing daily files.
 - `job_search/providers/llm/base.py` — `LLMProvider` abstract interface + `JobAnalysis` dataclass.
 - `job_search/providers/llm/claude.py` — Anthropic Claude implementation.
 - `job_search/providers/llm/gemini.py` — Google Gemini implementation.
+- `job_search/providers/llm/ollama.py` — Ollama (local inference) implementation via OpenAI-compatible API.
 - `job_search/providers/scrapers/linkedin.py` — Playwright LinkedIn scraper.
 - `legacyReportGenerator/` — original single-file tool (manual URL list → formatted report); independent from this pipeline.
 
 ### LLM provider
 
-Swap providers by editing `config/config.yaml`:
+Swap providers by editing `config/config.yaml`. Three providers are supported; no code changes needed.
 
 ```yaml
+# Gemini (cloud, fast):
 llm:
-  provider: claude # or "gemini"
+  provider: gemini
+  model: gemini-2.5-flash
+  api_key_env: GEMINI_API_KEY
+
+# Claude (cloud):
+llm:
+  provider: claude
   model: claude-haiku-4-5-20251001
   api_key_env: ANTHROPIC_API_KEY
-```
 
-No code changes needed.
+# Ollama (free local inference — no API key needed):
+llm:
+  provider: ollama
+  model: qwen2.5:14b
+  base_url: http://localhost:11434/v1   # override with OLLAMA_BASE_URL env var
+```
 
 ### Filtering
 
@@ -182,22 +221,25 @@ No code changes needed.
 
 **Hard filter** (AI-based): The `hard_filter_criteria` list in `config/config.yaml` is passed as plain English to the LLM alongside the job description. Edit that list freely — no code changes needed.
 
+**Experience cap** (code-enforced): `scoring.max_years` in `config/config.yaml` sets a hard ceiling on `min_years_required`. Even if the LLM doesn't filter the job, `score.py` will filter it when the extracted `min_years_required` >= `max_years`.
+
 ### Seen jobs / duplicate detection
 
-`data/seen_jobs.json` maps job ID → `{ first_seen, title, company, applied, applied_date }`.
+`data/seen_jobs.json` maps job ID → `{ first_seen, title, company, applied, applied_date, skip }`.
 
-- `job_search/pipeline/score.py` reads this on each run and flags jobs with `⚠️ PREVIOUSLY APPLIED`.
-- `job_search/pipeline/report.py` writes back to this file when it processes applied checkboxes.
+- `job_search/pipeline/score.py` reads this on each run and skips previously applied or hidden jobs without calling the LLM (they appear in the **Filtered Out** section).
+- `job_search/pipeline/report.py` writes back to this file when it processes applied and hidden checkboxes.
 
 ### Daily output format
 
-`output/daily_jobs_DATE.md` — jobs sorted by score descending (Remote/Hybrid boosted within ±5 pts). Each job has a `- [ ] Applied` checkbox. Mark `- [x] Applied` and run `python main.py report` to produce the EI report.
+`output/daily_jobs_DATE.md` — jobs sorted by score descending (Remote/Hybrid boosted within ±5 pts). Each job has a `- [ ] Applied` and `- [ ] Hide` checkbox. Mark `- [x] Applied` (via `serve` or directly in VS Code) and run `python main.py report` to produce the EI report.
 
 ### Environment variables (`config/.env`)
 
 ```
-ANTHROPIC_API_KEY=<your Anthropic API key>
-GEMINI_API_KEY=<your Gemini API key>   # only needed if using gemini provider
+ANTHROPIC_API_KEY=<your Anthropic API key>   # only needed if using claude provider
+GEMINI_API_KEY=<your Gemini API key>         # only needed if using gemini provider
+OLLAMA_BASE_URL=http://<host>:11434/v1       # only needed to point Ollama at a remote machine
 ```
 
 LinkedIn session is stored in `browser_data/` via `python main.py fetch --setup` (one-time login).
