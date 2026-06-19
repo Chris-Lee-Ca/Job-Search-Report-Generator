@@ -2,50 +2,6 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## AI Job Assistant
-
-This project includes a personal job assistant powered by Claude Code. When the user asks any question related to:
-
-- Job fit ("Is this job relevant to my background?")
-- Cover letters or application questions ("Why do you want to work at X?")
-- Interview prep ("How should I answer this question?")
-- Resume advice ("How should I describe this experience?")
-
-**Always do this first:**
-
-1. Read `config/resume.md` to understand the user's background, skills, and target roles.
-2. Read `config/qa_store.md` and check if a pre-saved answer exists for this exact question or company.
-   - If a saved answer exists: return it **verbatim**, do not rewrite or improve it.
-   - If no saved answer: generate a response grounded in the resume content.
-
-**Answer formatting rules:**
-
-- Never use em dashes (—) in generated answers.
-- Write like a normal person talking, not like an AI. Keep sentences short and straightforward. Avoid fancy phrasing, buzzwords, or anything that sounds polished or corporate.
-- Avoid filler phrases like "concrete problem with real stakes", "passionate about", "excited to", "drive impact", "deliver value". These sound like AI wrote them.
-
-**Salary questions:**
-When the user asks about salary expectations for a specific role (e.g. "what salary should I ask for at X?"):
-
-1. Check if the job listing already has a salary range — if so, use that as the anchor.
-2. If no salary is listed, use WebSearch to look up current salary data for that company and role title (Glassdoor, Levels.fyi, LinkedIn Salary, etc.).
-3. Factor in: job title and seniority level, years of experience required, company size and funding stage, and any live salary data found.
-4. Give a specific CAD (or USD if the role is US-based) range the user can actually quote, with a one-line explanation of why.
-
-- Do NOT guess without searching. Do NOT give a vague "it depends" answer.
-
-**Saving answers:**
-When the user says "save this answer", "remember this answer", or "remember this for [question]":
-
-- Append to `config/qa_store.md` using this exact format:
-  ```
-  ## Q: [question or topic]
-  **A:** [the answer to save]
-  ```
-- Confirm to the user that it has been saved.
-
----
-
 ## Testing standard
 
 ### Where tests live

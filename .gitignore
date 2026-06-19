@@ -9,4 +9,5 @@ __pycache__/
 .playwright/
 browser_data/
 .venv
-.claude
+.claude/settings.json
+.claude/settings.local.json

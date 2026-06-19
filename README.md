@@ -264,19 +264,17 @@ llm:
 
 ---
 
-## AI job assistant
+## AI job assistant (Claude Code skills)
 
-With the project open in Claude Code, you can ask job application questions in the terminal. Claude reads `config/resume.md` and `config/qa_store.md` automatically.
+Three skills are bundled in `.claude/skills/`. Open the project in Claude Code and they auto-trigger based on what you type, or invoke them explicitly with `/skill-name`.
 
-**Examples:**
-- *"Is this job relevant to my background? [paste description]"*
-- *"How should I answer 'Why do you want to work at 1Password?'"*
-- *"Help me write a cover letter for this role."*
+| Skill | Trigger | What it does |
+|-------|---------|--------------|
+| `/job-assistant` | Job fit, interview prep, resume advice, "save this answer" | Reads `config/resume.md` and `config/qa_store.md`. Returns saved answers verbatim; generates new ones from your resume. |
+| `/salary-check` | "What salary should I ask for at X?" | Checks the job listing for a posted range, then searches Glassdoor / Levels.fyi / LinkedIn Salary if none is listed. Returns a specific CAD or USD range. |
+| `/cover-letter` | "Cover letter for [job title]" | Finds the job in today's daily file, loads the full description from the raw JSON, and fills a fixed template. Saves a PDF to `output/cover_letters/`. |
 
-Save a polished answer for future reuse:
-> *"Save this answer to 'Why 1Password'"*
-
-Saved answers live in `config/qa_store.md` and are returned verbatim before Claude generates a new response.
+Saved answers live in `config/qa_store.md` (gitignored) and are returned verbatim on future runs before Claude generates a new response.
 
 ---
 
@@ -329,6 +327,10 @@ Read the actual HTML before writing new selectors — never guess.
 │   ├── resume.example.md          Template for resume.md
 │   ├── qa_store.md                Saved Q&A answers (gitignored)
 │   └── qa_store.example.md        Template for qa_store.md
+├── .claude/skills/                Claude Code skills (auto-trigger in Claude Code)
+│   ├── job-assistant/             Job fit, interview prep, resume Q&A, saving answers
+│   ├── salary-check/              Salary research and recommendation
+│   └── cover-letter/              Cover letter generation → PDF
 ├── browser_data/                  Persistent Chrome profile from --setup (gitignored)
 ├── data/seen_jobs.json            Tracks all seen jobs and applied/hidden status
 ├── data/daily_stats.json          Per-date scored/applied counts for the trend chart
