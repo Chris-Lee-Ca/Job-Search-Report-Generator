@@ -13,16 +13,16 @@ Always respond with a single JSON object and nothing else."""
 RESUME_BLOCK_TEMPLATE = """## Candidate Resume
 {resume}"""
 
-JOB_USER_TEMPLATE = """## Job Title
+JOB_DATA_TEMPLATE = """## Job Title
 {job_title}
 
 ## Job Description
 {job_description}
 
 ## Hard Filter Criteria
-{filter_criteria}
+{filter_criteria}"""
 
----
+ANALYSIS_INSTRUCTIONS = """---
 
 ## STEP 1 — Hard Filter Check
 

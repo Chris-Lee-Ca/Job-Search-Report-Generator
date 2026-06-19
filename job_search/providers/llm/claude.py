@@ -6,7 +6,7 @@ from typing import List
 
 import anthropic
 
-from .base import JobAnalysis, JOB_USER_TEMPLATE, LLMProvider, RESUME_BLOCK_TEMPLATE, SYSTEM_PROMPT
+from .base import ANALYSIS_INSTRUCTIONS, JobAnalysis, JOB_DATA_TEMPLATE, LLMProvider, RESUME_BLOCK_TEMPLATE, SYSTEM_PROMPT
 
 
 class ClaudeProvider(LLMProvider):
@@ -28,20 +28,21 @@ class ClaudeProvider(LLMProvider):
     ) -> JobAnalysis:
         criteria_text = "\n".join(f"- {c}" for c in filter_criteria)
 
-        # System array: static context cached as a shared prefix across all calls.
-        # cache_control on the resume block covers system_prompt + resume together,
-        # maximising the token count that counts toward the caching minimum threshold.
+        # System array: SYSTEM_PROMPT + resume + static analysis instructions are all
+        # cached together. cache_control on the last block covers everything before it.
+        # Only the dynamic job data (title, description, filter criteria) is sent uncached.
         system = [
             {"type": "text", "text": SYSTEM_PROMPT},
+            {"type": "text", "text": RESUME_BLOCK_TEMPLATE.format(resume=resume)},
             {
                 "type": "text",
-                "text": RESUME_BLOCK_TEMPLATE.format(resume=resume),
+                "text": ANALYSIS_INSTRUCTIONS,
                 "cache_control": {"type": "ephemeral"},
             },
         ]
 
         # User message: job-specific content only (varies per call, never cached).
-        user_content = JOB_USER_TEMPLATE.format(
+        user_content = JOB_DATA_TEMPLATE.format(
             job_title=job_title,
             job_description=job_description,
             filter_criteria=criteria_text,

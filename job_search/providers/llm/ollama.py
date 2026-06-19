@@ -5,7 +5,7 @@ from typing import List
 
 import openai
 
-from .base import JobAnalysis, JOB_USER_TEMPLATE, LLMProvider, RESUME_BLOCK_TEMPLATE, SYSTEM_PROMPT
+from .base import ANALYSIS_INSTRUCTIONS, JobAnalysis, JOB_DATA_TEMPLATE, LLMProvider, RESUME_BLOCK_TEMPLATE, SYSTEM_PROMPT
 
 
 class OllamaProvider(LLMProvider):
@@ -23,8 +23,8 @@ class OllamaProvider(LLMProvider):
         filter_criteria: List[str],
     ) -> JobAnalysis:
         criteria_text = "\n".join(f"- {c}" for c in filter_criteria)
-        system_content = SYSTEM_PROMPT + "\n\n" + RESUME_BLOCK_TEMPLATE.format(resume=resume)
-        user_content = JOB_USER_TEMPLATE.format(
+        system_content = SYSTEM_PROMPT + "\n\n" + RESUME_BLOCK_TEMPLATE.format(resume=resume) + "\n\n" + ANALYSIS_INSTRUCTIONS
+        user_content = JOB_DATA_TEMPLATE.format(
             job_title=job_title,
             job_description=job_description,
             filter_criteria=criteria_text,
