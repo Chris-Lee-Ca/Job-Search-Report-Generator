@@ -125,6 +125,64 @@ def test_pre_filter_non_blocked_company_passes(linkedin_cfg):
     assert ok
 
 
+# ── temporary_blocked_companies (cooldown) ────────────────────────────────────
+
+def test_effective_blocked_active_cooldown_blocks_company():
+    from datetime import date
+    from job_search.providers.scrapers.linkedin import _effective_blocked_companies
+    pre = {"temporary_blocked_companies": [{"company": "Amazon", "until": "2026-07-26"}]}
+    blocked = _effective_blocked_companies(pre, today=date(2026, 6, 26))
+    assert "amazon" in blocked
+
+def test_effective_blocked_expired_cooldown_not_blocked():
+    from datetime import date
+    from job_search.providers.scrapers.linkedin import _effective_blocked_companies
+    pre = {"temporary_blocked_companies": [{"company": "Amazon", "until": "2026-07-26"}]}
+    blocked = _effective_blocked_companies(pre, today=date(2026, 7, 27))
+    assert "amazon" not in blocked
+
+def test_effective_blocked_combines_permanent_and_temporary():
+    from datetime import date
+    from job_search.providers.scrapers.linkedin import _effective_blocked_companies
+    pre = {
+        "blocked_companies": ["Fire Feed"],
+        "temporary_blocked_companies": [{"company": "Amazon", "until": "2026-07-26"}],
+    }
+    blocked = _effective_blocked_companies(pre, today=date(2026, 6, 26))
+    assert blocked == {"fire feed", "amazon"}
+
+def _fixed_today(monkeypatch, year, month, day):
+    """Pin linkedin.date.today() so cooldown tests don't depend on the real wall clock."""
+    import job_search.providers.scrapers.linkedin as linkedin_module
+    from datetime import date
+
+    class _FixedDate(date):
+        @classmethod
+        def today(cls):
+            return date(year, month, day)
+
+    monkeypatch.setattr(linkedin_module, "date", _FixedDate)
+
+def test_pre_filter_blocked_company_active_cooldown(linkedin_cfg, monkeypatch):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    _fixed_today(monkeypatch, 2026, 6, 26)
+    linkedin_cfg["pre_filter"]["temporary_blocked_companies"] = [
+        {"company": "Amazon", "until": "2026-07-26"}
+    ]
+    ok, reason = _passes_pre_filter("Software Engineer", "Vancouver, BC", linkedin_cfg, company="Amazon")
+    assert not ok
+    assert "blocked company" in reason
+
+def test_pre_filter_company_passes_after_cooldown_expires(linkedin_cfg, monkeypatch):
+    from job_search.providers.scrapers.linkedin import _passes_pre_filter
+    _fixed_today(monkeypatch, 2026, 7, 27)
+    linkedin_cfg["pre_filter"]["temporary_blocked_companies"] = [
+        {"company": "Amazon", "until": "2026-07-26"}
+    ]
+    ok, _ = _passes_pre_filter("Software Engineer", "Vancouver, BC", linkedin_cfg, company="Amazon")
+    assert ok
+
+
 # ── QA / testing title blocks ─────────────────────────────────────────────────
 
 def test_pre_filter_qa_automation_engineer_blocked(linkedin_cfg):
@@ -243,6 +301,27 @@ def test_filter_blocked_case_insensitive(provider):
     jobs = _make_jobs("QUIK HIRE STAFFING", "quik hire staffing", "Quik Hire Staffing")
     result = provider._filter_blocked_companies(jobs)
     assert len(result) == 0
+
+def test_filter_blocked_removes_company_in_active_cooldown(provider, linkedin_cfg, monkeypatch):
+    _fixed_today(monkeypatch, 2026, 6, 26)
+    linkedin_cfg["pre_filter"]["temporary_blocked_companies"] = [
+        {"company": "Amazon", "until": "2026-07-26"}
+    ]
+    jobs = _make_jobs("Amazon", "Acme Corp")
+    result = provider._filter_blocked_companies(jobs)
+    companies = [j["company"] for j in result.values()]
+    assert "Amazon" not in companies
+    assert "Acme Corp" in companies
+
+def test_filter_blocked_keeps_company_after_cooldown_expires(provider, linkedin_cfg, monkeypatch):
+    _fixed_today(monkeypatch, 2026, 7, 27)
+    linkedin_cfg["pre_filter"]["temporary_blocked_companies"] = [
+        {"company": "Amazon", "until": "2026-07-26"}
+    ]
+    jobs = _make_jobs("Amazon", "Acme Corp")
+    result = provider._filter_blocked_companies(jobs)
+    companies = [j["company"] for j in result.values()]
+    assert "Amazon" in companies
 
 def test_filter_blocked_passes_non_blocked(provider):
     jobs = _make_jobs("Acme Corp", "Beta Inc", "Gamma Ltd")

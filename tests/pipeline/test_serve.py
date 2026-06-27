@@ -117,10 +117,11 @@ def test_patch_md_unknown_job_returns_false(tmp_path):
 
 # ── Flask routes (use the real run_serve app) ─────────────────────────────────
 
-def _make_app(md_path: Path):
+def _make_app(md_path: Path, config_path=None):
     """Build a test Flask app using the real serve.py routes (no .html needed)."""
     import json as _json
     from flask import Flask, jsonify, request
+    from job_search.config import add_blocked_company
     from job_search.pipeline.serve import _patch_md, _parse_md_to_data, _read_md_state
     from job_search.pipeline.html_template import HTML_TEMPLATE
 
@@ -154,6 +155,19 @@ def _make_app(md_path: Path):
         if not found:
             return jsonify({"error": "job not found"}), 404
         return jsonify({"ok": True})
+
+    @app.route("/blacklist", methods=["POST"])
+    def blacklist():
+        data = request.get_json(force=True)
+        job_id = data.get("job_id")
+        company = (data.get("company") or "").strip()
+        if not job_id or not company:
+            return jsonify({"error": "bad request"}), 400
+        added = add_blocked_company(company, config_path)
+        found = _patch_md(md_path, str(job_id), "hidden", True)
+        if not found:
+            return jsonify({"error": "job not found"}), 404
+        return jsonify({"ok": True, "added": added})
 
     return app
 
@@ -264,5 +278,91 @@ def test_toggle_unknown_job_returns_404(tmp_path):
 
     res = client.post("/toggle",
                       data=json.dumps({"job_id": "999999999", "action": "applied", "value": True}),
+                      content_type="application/json")
+    assert res.status_code == 404
+
+
+# ── blacklisting ────────────────────────────────────────────────────────────────
+
+SAMPLE_CONFIG_YAML = """\
+linkedin:
+  pre_filter:
+    # Companies to block outright (case-insensitive substring match on company name).
+    blocked_companies:
+      - "Fire Feed"
+
+    staff_title_pattern: '\\bstaff\\b'
+"""
+
+
+def test_blacklist_route_adds_company_and_hides_only_that_job(tmp_path):
+    md = tmp_path / "daily_jobs_2026-06-12.md"
+    md.write_text(SAMPLE_MD)
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML)
+    client = _make_app(md, config).test_client()
+
+    res = client.post("/blacklist",
+                      data=json.dumps({"job_id": "333333333", "company": "Acme"}),
+                      content_type="application/json")
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["added"] is True
+    assert '"Acme"' in config.read_text()
+
+    state = client.get("/state").get_json()
+    assert state["333333333"]["hidden"] is True
+    # other jobs from different companies are untouched
+    assert state["111111111"]["hidden"] is False
+
+
+def test_blacklist_route_already_blocked_returns_added_false(tmp_path):
+    md = tmp_path / "daily_jobs_2026-06-12.md"
+    md.write_text(SAMPLE_MD)
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML)
+    client = _make_app(md, config).test_client()
+
+    client.post("/blacklist", data=json.dumps({"job_id": "333333333", "company": "Fire Feed"}),
+                content_type="application/json")
+    res = client.post("/blacklist", data=json.dumps({"job_id": "333333333", "company": "fire feed"}),
+                      content_type="application/json")
+
+    assert res.get_json()["added"] is False
+
+
+def test_blacklist_route_missing_company_returns_400(tmp_path):
+    md = tmp_path / "daily_jobs_2026-06-12.md"
+    md.write_text(SAMPLE_MD)
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML)
+    client = _make_app(md, config).test_client()
+
+    res = client.post("/blacklist", data=json.dumps({"job_id": "333333333", "company": ""}),
+                      content_type="application/json")
+    assert res.status_code == 400
+
+
+def test_blacklist_route_missing_job_id_returns_400(tmp_path):
+    md = tmp_path / "daily_jobs_2026-06-12.md"
+    md.write_text(SAMPLE_MD)
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML)
+    client = _make_app(md, config).test_client()
+
+    res = client.post("/blacklist", data=json.dumps({"company": "Acme"}),
+                      content_type="application/json")
+    assert res.status_code == 400
+
+
+def test_blacklist_route_unknown_job_returns_404(tmp_path):
+    md = tmp_path / "daily_jobs_2026-06-12.md"
+    md.write_text(SAMPLE_MD)
+    config = tmp_path / "config.yaml"
+    config.write_text(SAMPLE_CONFIG_YAML)
+    client = _make_app(md, config).test_client()
+
+    res = client.post("/blacklist",
+                      data=json.dumps({"job_id": "999999999", "company": "Acme"}),
                       content_type="application/json")
     assert res.status_code == 404

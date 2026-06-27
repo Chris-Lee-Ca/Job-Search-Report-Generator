@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -27,6 +28,32 @@ def load_config(path: Path | None = None) -> dict:
             normalised.append(entry)
     cfg["search_urls"] = normalised
     return cfg
+
+
+def add_blocked_company(company: str, path: Path | None = None) -> bool:
+    """Append a company to linkedin.pre_filter.blocked_companies in config.yaml.
+
+    Edits the raw text in place (instead of a yaml.safe_load/dump round-trip)
+    so the file's extensive comments survive. Returns False if the company is
+    already blocked (case-insensitive), True if it was added.
+    """
+    p = path or CONFIG_FILE
+    text = p.read_text(encoding="utf-8")
+
+    m = re.search(r"^( *)blocked_companies:\n((?:\1  - .*\n)*)", text, re.MULTILINE)
+    if not m:
+        raise ValueError("blocked_companies list not found in config.yaml")
+
+    indent, items_block = m.group(1), m.group(2)
+    existing = re.findall(r'-\s*"(.*?)"', items_block)
+    if any(e.lower() == company.lower() for e in existing):
+        return False
+
+    escaped = company.replace('"', '\\"')
+    new_line = f'{indent}  - "{escaped}"\n'
+    insert_at = m.end()
+    p.write_text(text[:insert_at] + new_line + text[insert_at:], encoding="utf-8")
+    return True
 
 
 def load_resume(path: Path | None = None) -> str:

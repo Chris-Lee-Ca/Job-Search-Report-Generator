@@ -6,7 +6,7 @@ import json
 import random
 import re
 import time
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import List, Optional
 
@@ -96,6 +96,17 @@ def _strip_french_section(text: str) -> str:
     return text
 
 
+def _effective_blocked_companies(pre: dict, today: date | None = None) -> set[str]:
+    """blocked_companies plus any temporary_blocked_companies still within their cooldown window."""
+    today = today or date.today()
+    blocked = {c.lower() for c in pre.get("blocked_companies", [])}
+    for entry in pre.get("temporary_blocked_companies", []):
+        until = entry.get("until")
+        if until and today <= date.fromisoformat(until):
+            blocked.add(entry["company"].lower())
+    return blocked
+
+
 def _passes_pre_filter(
     title: str,
     location: str,
@@ -112,7 +123,7 @@ def _passes_pre_filter(
     loc_cfg = cfg.get("location_filter", {})
 
     # Blocked companies
-    blocked_companies = {c.lower() for c in pre.get("blocked_companies", [])}
+    blocked_companies = _effective_blocked_companies(pre)
     if company.lower() in blocked_companies:
         return False, f"blocked company: {company}"
 
@@ -313,10 +324,7 @@ class LinkedInProvider(JobProvider):
     # ── Private helpers ───────────────────────────────────────────────────────
 
     def _filter_blocked_companies(self, jobs: dict) -> dict:
-        blocked = {
-            c.lower()
-            for c in self.linkedin_cfg.get("pre_filter", {}).get("blocked_companies", [])
-        }
+        blocked = _effective_blocked_companies(self.linkedin_cfg.get("pre_filter", {}))
         if not blocked:
             return jobs
         filtered = {jid: j for jid, j in jobs.items() if j.get("company", "").lower() not in blocked}

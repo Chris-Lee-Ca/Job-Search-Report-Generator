@@ -65,6 +65,8 @@ a{color:inherit;text-decoration:none}
 .btn{padding:5px 12px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid;transition:all .15s;font-weight:500;background:#fff}
 .btn-s{border-color:var(--border);color:var(--sub)}
 .btn-s.on{border-color:var(--danger);color:var(--danger);background:#fef2f2}
+.btn-block{border-color:var(--danger);color:var(--danger)}
+.btn-block:hover{background:#fef2f2}
 .chk-wrap{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:5px;font-size:12px;cursor:pointer;border:1px solid #86efac;color:var(--green);font-weight:500;background:#fff;user-select:none;transition:all .15s}
 .chk-wrap.on{background:var(--green);color:#fff;border-color:var(--green)}
 .chk-wrap input{width:13px;height:13px;accent-color:var(--green);cursor:pointer}
@@ -195,6 +197,7 @@ function buildCard(job){
       <label class="chk-wrap${s.applied?' on':''}"><input type="checkbox" data-id="${esc(job.job_id)}" data-act="applied" ${s.applied?'checked':''}>${s.applied?'Applied':'Apply'}</label>
       <button class="btn btn-s${s.hidden?' on':''}" data-id="${esc(job.job_id)}" data-act="hidden">${
         s.hidden?'↩ Unhide':'Skip'}</button>
+      <button class="btn btn-block" data-id="${esc(job.job_id)}" data-company="${esc(job.company)}" title="Add company to config.yaml blocklist and hide this listing">🚫 Block</button>
     </div>`;
   return card;
 }
@@ -297,6 +300,32 @@ document.getElementById('main').addEventListener('click',async function(e){
   btn.classList.toggle('on',newVal);
   btn.textContent=newVal?'↩ Unhide':'Skip';
   updateSummary();
+});
+
+document.getElementById('main').addEventListener('click',async function(e){
+  const btn=e.target.closest('.btn-block'); if(!btn) return;
+  const jobId=btn.dataset.id, company=btn.dataset.company;
+  if(!confirm(`Block "${company}"? This adds them to config.yaml so future listings are filtered out, and hides this listing.`)) return;
+
+  let data;
+  try{
+    const r=await fetch('/blacklist',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({job_id:jobId, company})});
+    if(!r.ok) throw new Error();
+    data=await r.json();
+  }catch(err){ toast('Could not block company — is the server still running?'); return; }
+
+  const cur=jobState(jobId);
+  state[jobId]={applied:cur.applied||false, hidden:true};
+  const card=document.querySelector(`.card[data-id="${jobId}"]`);
+  if(card){
+    card.classList.add('skipped');
+    const skipBtn=card.querySelector('.btn-s');
+    if(skipBtn){ skipBtn.classList.add('on'); skipBtn.textContent='↩ Unhide'; }
+  }
+  applyFilters();
+  updateSummary();
+  toast(data.added?`Blocked "${company}" in config.yaml`:`"${company}" was already blocked`);
 });
 
 function init(){

@@ -93,6 +93,15 @@ linkedin:
       - "Crossing Hurdles"
       - "DataAnnotation"
       - "Helic & Co."
+    # Temporary company blocks that auto-expire after the `until` date
+    # (inclusive, YYYY-MM-DD). Use for interview cooldowns — add the exact
+    # company name(s) as they appear on LinkedIn. Expired entries are
+    # ignored automatically; no need to remove them.
+    temporary_blocked_companies:
+      - company: "Amazon"
+        until: "2026-07-26"
+      - company: "Amazon Web Services (AWS)"
+        until: "2026-07-26"
 
     # Regex pattern for staff-level titles to block (re.IGNORECASE applied in code).
     # Matches "Staff Engineer", "Staff Developer", "Staff Backend Engineer", etc.

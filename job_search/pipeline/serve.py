@@ -181,6 +181,8 @@ def _patch_md(md_path: Path, job_id: str, action: str, value: bool) -> bool:
 def run_serve(md_path_str: str, port: int = 5757) -> None:
     from flask import Flask, jsonify, request
 
+    from job_search.config import CONFIG_FILE, add_blocked_company
+
     md_path = Path(md_path_str).resolve()
     if not md_path.exists():
         raise FileNotFoundError(f"Markdown file not found: {md_path}")
@@ -222,6 +224,19 @@ def run_serve(md_path_str: str, port: int = 5757) -> None:
         if not found:
             return jsonify({"error": "job not found"}), 404
         return jsonify({"ok": True})
+
+    @app.route("/blacklist", methods=["POST"])
+    def blacklist():
+        data = request.get_json(force=True)
+        job_id = data.get("job_id")
+        company = (data.get("company") or "").strip()
+        if not job_id or not company:
+            return jsonify({"error": "bad request"}), 400
+        added = add_blocked_company(company, CONFIG_FILE)
+        found = _patch_md(md_path, str(job_id), "hidden", True)
+        if not found:
+            return jsonify({"error": "job not found"}), 404
+        return jsonify({"ok": True, "added": added})
 
     url = f"http://127.0.0.1:{port}"
     print(f"Serving {md_path.name} at {url}  (Ctrl+C to stop)")
