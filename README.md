@@ -115,6 +115,7 @@ python main.py serve output/daily_jobs_2026-05-19.md   # explicit date
 The browser opens at `http://localhost:5757` and shows styled job cards with:
 - **Score bar** and skill tags (✅ has / ❌ missing / ⭐ nice-to-have)
 - **Applied** and **Skip** toggle buttons — each click patches the `.md` checkbox immediately
+- **🚫 Block** button — adds the company to `linkedin.pre_filter.blocked_companies` in `config/config.yaml` (so future scrapes skip them) and hides this listing, same as Skip
 - **Filter bar** — score threshold slider, Remote/Hybrid/Onsite toggles, text search
 - **Filtered Out** section at the bottom
 
@@ -240,7 +241,7 @@ The config is a single YAML file with inline comments throughout. Key sections:
 | `llm.base_url` | Ollama API endpoint (default `http://localhost:11434/v1`; override with `OLLAMA_BASE_URL` env var) |
 | `scoring.remote_score_bonus` | Extra pts added for Remote roles (default `5`; half applied to Hybrid) |
 | `scoring.max_years` | Hard cap on `min_years_required` — jobs at or above this threshold are always filtered (default `6`) |
-| `linkedin.pre_filter` | `blocked_companies` (applied after detail fetch), `staff_title_pattern`, `lead_principal_title_pattern` (applied at card stage) |
+| `linkedin.pre_filter` | `blocked_companies` (applied after detail fetch — editable here or via the 🚫 Block button in `serve`), `staff_title_pattern`, `lead_principal_title_pattern` (applied at card stage) |
 | `linkedin.location_filter` | `metro_vancouver` (always keep) and `blocked_non_bc_cities` (block unless remote) |
 | `linkedin.delay_multiplier` | Scales all scraper delays. `1.0` = safe; `0.4` = faster; `2.0` = if LinkedIn throttles |
 

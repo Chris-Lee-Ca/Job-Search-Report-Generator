@@ -66,10 +66,10 @@ main.py fetch  →  output/raw/raw_jobs_DATE.json
 - `config/resume.md` — user's background; read by the scorer and job assistant. Gitignored.
 - `config/qa_store.md` — saved Q&A answers; checked before generating new responses. Gitignored.
 - `data/seen_jobs.json` — every job ID seen, with applied/hidden status.
-- `job_search/config.py` — shared loader for config, resume, and seen_jobs.
+- `job_search/config.py` — shared loader for config, resume, and seen_jobs; also `add_blocked_company()` (comment-preserving text edit of `config.yaml`).
 - `job_search/pipeline/fetch.py` — LinkedIn scrape orchestrator.
 - `job_search/pipeline/score.py` — AI filter + scorer; writes `output/daily_jobs_DATE.md`.
-- `job_search/pipeline/serve.py` — Flask server; parses `.md`, renders HTML, patches checkboxes.
+- `job_search/pipeline/serve.py` — Flask server; parses `.md`, renders HTML, patches checkboxes, blacklists companies (`/blacklist`).
 - `job_search/pipeline/report.py` — reads checked `.md` boxes, updates `seen_jobs.json`, writes EI report.
 - `job_search/pipeline/retry_errors.py` — re-scores only error entries; stops on first new error.
 - `job_search/providers/llm/base.py` — `LLMProvider` abstract interface + `JobAnalysis` dataclass.
@@ -77,7 +77,7 @@ main.py fetch  →  output/raw/raw_jobs_DATE.json
 
 ### Filtering
 
-**Pre-filter** (code-only, before LLM): `linkedin.pre_filter` and `linkedin.location_filter` in `config/config.yaml` — title blocklist, blocked companies, city-based filtering.
+**Pre-filter** (code-only, before LLM): `linkedin.pre_filter` and `linkedin.location_filter` in `config/config.yaml` — title blocklist, blocked companies, city-based filtering. `blocked_companies` can also be added one at a time from the `serve` UI via the 🚫 Block button on a job card (hides that listing immediately, like Skip, and appends the company to `config.yaml`).
 **Hard filter** (AI-based): `hard_filter_criteria` in `config/config.yaml` — plain English, edit freely, no code changes.
 **Experience cap** (code-enforced): `scoring.max_years` in `config/config.yaml` — hard ceiling on `min_years_required`.
 
