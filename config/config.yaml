@@ -56,6 +56,7 @@ hard_filter_criteria:
   - "Exclude roles where Java is the only or clearly dominant required language, with no mention of Python, TypeScript, Go, or other modern web/backend languages"
   - "Exclude roles that require Solidity, Ethereum smart contract development, or blockchain protocol engineering as a core daily requirement"
   - "Exclude roles where the primary hard requirement is medical device software compliance knowledge (IEC 60601, FDA 21 CFR Part 11, MDR)"
+  - "Exclude delivery lead, program lead, product lead, project lead, or other delivery-leadership/people-management roles whose primary responsibility is managing backlogs, contractors, or delivery throughput rather than hands-on individual-contributor software engineering"
 
 # Scoring tweaks applied after the LLM assigns a base score (0–100).
 scoring:
@@ -98,9 +99,10 @@ linkedin:
     staff_title_pattern: '\bstaff\s+(engineer|developer|software|platform|ml|sre|sde|backend|frontend|full.?stack|data|cloud|devops|infra|architect)'
 
     # Regex pattern for lead/principal-level titles to block.
-    # Matches "Lead Developer", "Principal Engineer", "Tech Lead", "Team Lead", etc.
+    # Matches "Lead Developer", "Principal Engineer", and any "<word> Lead" title
+    # (Tech Lead, Team Lead, Delivery Lead, Program Lead, Product Lead, etc.).
     # Also matches manager/director roles, data-only roles, and QA/testing roles.
-    lead_principal_title_pattern: '\b(lead|principal)\s+(developer|engineer|software|platform|ml|sre|sde|backend|frontend|full.?stack|data|cloud|devops|infra|architect)|\bteam\s+lead\b|\btech\s+lead\b|\bengineering\s+lead\b|\bmanager\b|\bdirector\b|\bdata\s+(scientist|analyst)\b|\bdevops\b|\bqa\b|\bsdet\b|\btest\s+(engineer|developer|lead|architect)\b|\bquality\s+(engineer|assurance|designer|analyst)\b|\bautomation\s+(engineer|developer|tester)\b'
+    lead_principal_title_pattern: '\b(lead|principal)\s+(developer|engineer|software|platform|ml|sre|sde|backend|frontend|full.?stack|data|cloud|devops|infra|architect)|\b\w+\s+lead\b|\bmanager\b|\bdirector\b|\bdata\s+(scientist|analyst)\b|\bdevops\b|\bqa\b|\bsdet\b|\btest\s+(engineer|developer|lead|architect)\b|\bquality\s+(engineer|assurance|designer|analyst)\b|\bautomation\s+(engineer|developer|tester)\b'
 
   # Location-based pre-filter for BC/Vancouver-focused job searches.
   # All city names must be lowercase — matching is case-insensitive substring.
